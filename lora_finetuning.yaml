@@ -1,5 +1,5 @@
-out_dir: 'crystallm_v1_small_lora'
-eval_interval: 10  # how often to evaluate against the validation set
+out_dir: 'crystallm_v1_small_CHILI-100K'
+eval_interval: 250  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
