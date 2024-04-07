@@ -80,7 +80,7 @@ def read_start_indices(
     starts_path = os.path.join(data_dir, starts_fname)
     if on_condition:
         if os.path.exists(starts_path):
-            print(f"Reading start indices from {starts_path}...")
+            print(f"Reading start indices from {starts_path}...", flush=True)
             with open(starts_path, "rb") as f:
                 start_indices = torch.tensor(pickle.load(f))  # should be sorted
             # remove indices that would result in out-of-bounds sequences
@@ -93,10 +93,10 @@ def read_start_indices(
 if __name__ == "__main__":
     C = parse_config(TrainDefaults)
 
-    print("Using configuration:")
+    print("Using configuration:", flush=True)
     print(OmegaConf.to_yaml(C))
 
-    print(f"Creating {C.out_dir}...")
+    print(f"Creating {C.out_dir}...", flush=True)
     os.makedirs(C.out_dir, exist_ok=True)
 
     torch.manual_seed(1337)
@@ -165,19 +165,19 @@ if __name__ == "__main__":
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
         meta_vocab_size = meta["vocab_size"]
-        print(f"Found vocab_size = {meta_vocab_size} (inside {meta_path})")
+        print(f"Found vocab_size = {meta_vocab_size} (inside {meta_path})", flush=True)
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
                       bias=C.bias, vocab_size=None, dropout=C.dropout)
     if C.init_from == "scratch":
-        print("Initializing a new model from scratch...")
+        print("Initializing a new model from scratch...", flush=True)
         if meta_vocab_size is None:
-            print("Defaulting to vocab_size of 371...")
+            print("Defaulting to vocab_size of 371...", flush=True)
         model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 371
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
     elif C.init_from == "resume":
-        print(f"Resuming training from {C.out_dir}...")
+        print(f"Resuming training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
         checkpoint = torch.load(ckpt_path, map_location=C.device)
         checkpoint_model_args = checkpoint["model_args"]
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
     elif C.init_from == "finetune":
-        print(f"Finetuning training from {C.out_dir}...")
+        print(f"Finetuning training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
         checkpoint = torch.load(ckpt_path, map_location=C.device)
         checkpoint_model_args = checkpoint["model_args"]
@@ -223,9 +223,7 @@ if __name__ == "__main__":
             else:
                 param.requires_grad = False
 
-        print("number of trainable parameters: %.2fM" % (model.get_num_params(trainable=True)/1e6,))
-
-    print('Loaded')
+        print("number of trainable parameters: %.2fM" % (model.get_num_params(trainable=True)/1e6,), flush=True)
 
     # crop down the model block size if desired, using model surgery
     if C.block_size < model.config.block_size:
@@ -241,7 +239,7 @@ if __name__ == "__main__":
         optimizer.load_state_dict(checkpoint["optimizer"])
 
     if C.compile:
-        print("Compiling the model (takes a ~minute)...")
+        print("Compiling the model (takes a ~minute)...", flush=True)
         unoptimized_model = model
         model = torch.compile(model)  # requires PyTorch 2.0
 
@@ -291,7 +289,7 @@ if __name__ == "__main__":
         if iter_num % C.eval_interval == 0:
             if C.validate:
                 losses = estimate_loss()
-                print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+                print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 best_val_loss = losses["val"] if C.validate else 0.
                 if iter_num > 0:
@@ -303,7 +301,7 @@ if __name__ == "__main__":
                         "best_val_loss": best_val_loss,
                         "config": dict(C),
                     }
-                    print(f"saving checkpoint to {C.out_dir}...")
+                    print(f"saving checkpoint to {C.out_dir}...", flush=True)
                     torch.save(checkpoint, os.path.join(C.out_dir, "ckpt.pt"))
         if iter_num == 0 and C.eval_only:
             break
@@ -336,7 +334,7 @@ if __name__ == "__main__":
             if local_iter_num >= 5:  # let the training loop settle a bit
                 mfu = model.estimate_mfu(C.batch_size * C.gradient_accumulation_steps, dt)
                 running_mfu = mfu if running_mfu == -1.0 else 0.9 * running_mfu + 0.1 * mfu
-            print(f"iter {iter_num}: loss {lossf:.4f}, time {dt * 1000:.2f}ms, mfu {running_mfu * 100:.2f}%")
+            print(f"iter {iter_num}: loss {lossf:.4f}, time {dt * 1000:.2f}ms, mfu {running_mfu * 100:.2f}%", flush=True)
         iter_num += 1
         local_iter_num += 1
 
