@@ -13,6 +13,22 @@ from torch.nn import functional as F
 from crystallm import CIFTokenizer
 
 
+class LoRALayer(nn.Module):
+    def __init__(self, input_dim, output_dim, rank):
+        super(LoRALayer, self).__init__()
+        self.rank = rank
+        self.A = nn.Parameter(torch.Tensor(input_dim, rank))
+        self.B = nn.Parameter(torch.Tensor(rank, output_dim))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.A)
+        nn.init.xavier_uniform_(self.B)
+
+    def forward(self, x):
+        return x @ self.A @ self.B
+
+
 @dataclass
 class GPTConfig:
     block_size: int = 1024
@@ -22,6 +38,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True
+    lora_rank: int = 2
 
 
 class LayerNorm(nn.Module):
@@ -60,6 +77,10 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
+        # LoRA
+        self.lora_attn = LoRALayer(config.n_embd, 3 * config.n_embd, config.lora_rank)
+        self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
+
     def forward(self, x: Tensor) -> Tensor:
         """
         Applies causal self-attention to the given tensor,
@@ -76,6 +97,15 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
+        lora_q, lora_k, lora_v = self.lora_attn(x).split(self.n_embd, dim=2)
+        lora_k = lora_k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        lora_q = lora_q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        lora_v = lora_v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+
+        k = k + lora_k
+        q = q + lora_q
+        v = v + lora_v
+
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout, is_causal=True)
@@ -88,7 +118,7 @@ class CausalSelfAttention(nn.Module):
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
-        y = self.resid_dropout(self.c_proj(y))
+        y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
         return y
 
 
@@ -112,10 +142,13 @@ class MLP(nn.Module):
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
+        self.lora_fc = LoRALayer(config.n_embd, 4 * config.n_embd, rank=config.lora_rank)
+        self.lora_proj = LoRALayer(4 * config.n_embd, config.n_embd, rank=config.lora_rank)
+
     def forward(self, x: Tensor) -> Tensor:
-        x = self.c_fc(x)
+        x = self.c_fc(x) + self.lora_fc(x)
         x = gelu(x)
-        x = self.c_proj(x)
+        x = self.c_proj(x) + self.lora_proj(x)
         x = self.dropout(x)
         return x
 
@@ -158,6 +191,7 @@ class GPT(nn.Module):
             ln_f=LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
         # https://paperswithcode.com/method/weight-tying
         self.transformer.wte.weight = self.lm_head.weight
 
@@ -167,9 +201,9 @@ class GPT(nn.Module):
             if pn.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
-        print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
+        print("number of total parameters: %.2fM" % (self.get_num_params()/1e6,))
 
-    def get_num_params(self, non_embedding: bool = True) -> int:
+    def get_num_params(self, non_embedding: bool = True, trainable: bool = False) -> int:
         """
         Return the number of parameters in the model. Subtract the position embeddings
         by default. The token embeddings are always included, since they are used in the
@@ -178,9 +212,12 @@ class GPT(nn.Module):
         :param non_embedding: whether to subtract the position embeddings (default is True)
         :returns: the number of parameters in the model
         """
-        n_params = sum(p.numel() for p in self.parameters())
-        if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+        if not trainable:
+            n_params = sum(p.numel() for p in self.parameters())
+            if non_embedding:
+                n_params -= self.transformer.wpe.weight.numel()
+        else:
+            n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         return n_params
 
     def _init_weights(self, module):
@@ -253,6 +290,9 @@ class GPT(nn.Module):
                     decay.add(fpn)
                 elif pn.endswith("weight") and isinstance(m, blacklist_weight_modules):
                     # weights of blacklist modules will NOT be weight decayed
+                    no_decay.add(fpn)
+
+                if 'lora' in fpn:
                     no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they

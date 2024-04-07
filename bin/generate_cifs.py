@@ -104,6 +104,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpus", type=int,
                         help="The number of GPUs to use. "
                              "The number of GPUs specified must be available on the same machine.")
+    parser.add_argument("--debug_max", type=int, default=0)
 
     args, _ = parser.parse_known_args()
     if args.device == "cuda":
@@ -112,6 +113,9 @@ if __name__ == "__main__":
         gpus_avail = 0
     parser.set_defaults(gpus=gpus_avail)
     args = parser.parse_args()
+
+    if args.debug_max == 0:
+        args.debug_max = None
 
     model_dir = args.model
     prompts_file = args.prompts
@@ -132,14 +136,18 @@ if __name__ == "__main__":
     workers = 1 if device == "cpu" else gpus
 
     prompts = []
+    num_generated = 0
     with tarfile.open(prompts_file, "r:gz") as tar:
         for member in tqdm(tar.getmembers(), desc="extracting prompts..."):
+            if (num_generated is not None) and (num_generated > args.debug_max):
+                break
             f = tar.extractfile(member)
             if f is not None:
                 content = f.read().decode("utf-8")
                 filename = os.path.basename(member.name)
                 cif_id = filename.replace(".txt", "")
                 prompts.append((cif_id, content))
+                num_generated += 1
 
     chunks = array_split(prompts, workers)
     manager = mp.Manager()

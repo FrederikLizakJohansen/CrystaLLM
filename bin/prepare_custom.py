@@ -14,14 +14,17 @@ def process_cif_files(input_dir, output_tar_gz):
         for root, _, files in os.walk(input_dir):
             for file in tqdm(files, desc="preparing CIF files..."):
                 if file.endswith(".cif"):
-                    file_path = os.path.join(root, file)
-                    struct = Structure.from_file(file_path)
-                    cif_content = CifWriter(struct=struct, symprec=0.1).__str__()
+                    try:
+                        file_path = os.path.join(root, file)
+                        struct = Structure.from_file(file_path)
+                        cif_content = CifWriter(struct=struct, symprec=0.1).__str__()
 
-                    cif_file = tarfile.TarInfo(name=file)
-                    cif_bytes = cif_content.encode("utf-8")
-                    cif_file.size = len(cif_bytes)
-                    tar.addfile(cif_file, io.BytesIO(cif_bytes))
+                        cif_file = tarfile.TarInfo(name=file)
+                        cif_bytes = cif_content.encode("utf-8")
+                        cif_file.size = len(cif_bytes)
+                        tar.addfile(cif_file, io.BytesIO(cif_bytes))
+                    except:
+                        continue
 
 
 if __name__ == "__main__":

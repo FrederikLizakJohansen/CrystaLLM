@@ -26,7 +26,7 @@ if __name__ == "__main__":
                         help="Random state for train-test split.")
     parser.add_argument("--validation_size", type=float, default=0.10,
                         help="Size of the validation set as a fraction.")
-    parser.add_argument("--test_size", type=float, default=0.0045,
+    parser.add_argument("--test_size", type=float, default=0.05,
                         help="Size of the test set as a fraction.")
     args = parser.parse_args()
 

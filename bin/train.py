@@ -196,6 +196,36 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
+    elif C.init_from == "finetune":
+        print(f"Finetuning training from {C.out_dir}...")
+        ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
+        checkpoint = torch.load(ckpt_path, map_location=C.device)
+        checkpoint_model_args = checkpoint["model_args"]
+        # force these config attributes to be equal otherwise we can't even resume training;
+        #  the rest of the attributes (e.g. dropout) can stay as desired
+        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
+            model_args[k] = checkpoint_model_args[k]
+        gptconf = GPTConfig(**model_args)
+        model = GPT(gptconf)
+        state_dict = checkpoint["model"]
+        # fix the keys of the state dictionary
+        unwanted_prefix = "_orig_mod."
+        for k, v in list(state_dict.items()):
+            if k.startswith(unwanted_prefix):
+                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+        model.load_state_dict(state_dict, strict=False)
+        iter_num = checkpoint["iter_num"]
+        best_val_loss = checkpoint["best_val_loss"]
+
+        for name, param in model.named_parameters():
+            if 'lora' in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+
+        print("number of trainable parameters: %.2fM" % (model.get_num_params(trainable=True)/1e6,))
+
+    print('Loaded')
 
     # crop down the model block size if desired, using model surgery
     if C.block_size < model.config.block_size:

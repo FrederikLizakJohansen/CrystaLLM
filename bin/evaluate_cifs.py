@@ -4,6 +4,7 @@ import argparse
 import tarfile
 import queue
 import multiprocessing as mp
+import traceback
 
 from tqdm import tqdm
 import numpy as np
@@ -79,8 +80,8 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
             if is_space_group_consistent(cif):
                 n_space_group_consistent += 1
 
-            score = bond_length_reasonableness_score(cif)
-            bond_length_reasonableness_scores.append(score)
+            #score = bond_length_reasonableness_score(cif)
+            #bond_length_reasonableness_scores.append(score)
 
             a = extract_numeric_property(cif, "_cell_length_a")
             b = extract_numeric_property(cif, "_cell_length_b")
@@ -99,7 +100,8 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
 
         except Exception as e:
             if debug:
-                print(f"ERROR: {e}")
+                print(traceback.format_exc())
+                #print(f"ERROR: {e}")
 
         progress_queue.put(1)
 
