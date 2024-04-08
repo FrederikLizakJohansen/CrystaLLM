@@ -139,8 +139,9 @@ if __name__ == "__main__":
     num_generated = 0
     with tarfile.open(prompts_file, "r:gz") as tar:
         for member in tqdm(tar.getmembers(), desc="extracting prompts..."):
-            if (num_generated is not None) and (num_generated > args.debug_max):
-                break
+            if args.debug_max is not None:
+                if num_generated > args.debug_max:
+                    break
             f = tar.extractfile(member)
             if f is not None:
                 content = f.read().decode("utf-8")
