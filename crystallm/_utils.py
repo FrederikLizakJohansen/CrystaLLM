@@ -101,7 +101,7 @@ def replace_symmetry_operators(cif_str, space_group_symbol):
 
     symm_block = str(CifBlock(data, loops, "")).replace("data_\n", "")
 
-    pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n1 'x, y, z')"
+    pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n1  'x, y, z')"
     cif_str_updated = re.sub(pattern, symm_block, cif_str)
 
     return cif_str_updated
@@ -130,7 +130,8 @@ def extract_formula_units(cif_str):
 
 
 def extract_data_formula(cif_str):
-    match = re.search(r"data_([A-Za-z0-9.]+)\n", cif_str)
+    #match = re.search(r"data_([A-Za-z0-9.]+)\n", cif_str)
+    match = re.search(r"data_([A-Za-z0-9.()]+)\n", cif_str) # Including paranthesis
     if match:
         return match.group(1)
     raise Exception(f"could not find data_ in:\n{cif_str}")
@@ -150,6 +151,14 @@ def semisymmetrize_cif(cif_str):
         cif_str,
         flags=re.DOTALL
     )
+
+def replace_symmetry_loop(cif_str):
+    start = cif_str.find("_symmetry_equiv_pos_site_id")
+    end = cif_str.find("loop_", start+1)
+
+    replacement = """_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n1  'x, y, z'\n"""
+
+    return cif_str.replace(cif_str[start:end], replacement)
 
 
 def replace_data_formula_with_nonreduced_formula(cif_str):

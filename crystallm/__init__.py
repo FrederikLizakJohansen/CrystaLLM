@@ -32,6 +32,7 @@ from ._utils import (
     replace_symmetry_operators,
     round_numbers,
     semisymmetrize_cif,
+    replace_symmetry_loop,
 )
 
 from ._scorer import (

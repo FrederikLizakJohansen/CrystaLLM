@@ -36,6 +36,14 @@ def read_generated_cifs(input_path):
             f = tar.extractfile(member)
             if f is not None:
                 cif = f.read().decode("utf-8")
+                lines = cif.split('\n')
+                cif_lines = []
+                for line in lines:
+                    line = line.strip()
+                    if len(line) > 0 and not line.startswith("#") and "pymatgen" not in line:
+                        cif_lines.append(line)
+                cif_lines.append("\n")
+                cif = "\n".join(cif_lines)
                 generated_cifs.append(cif)
     return generated_cifs
 
@@ -80,8 +88,8 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
             if is_space_group_consistent(cif):
                 n_space_group_consistent += 1
 
-            #score = bond_length_reasonableness_score(cif)
-            #bond_length_reasonableness_scores.append(score)
+            score = bond_length_reasonableness_score(cif)
+            bond_length_reasonableness_scores.append(score)
 
             a = extract_numeric_property(cif, "_cell_length_a")
             b = extract_numeric_property(cif, "_cell_length_b")

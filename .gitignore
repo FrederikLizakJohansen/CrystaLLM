@@ -162,3 +162,6 @@ out/
 
 scratches/
 saved_models/
+
+CHILI-100K/
+**/*ckpt.pt

@@ -80,8 +80,6 @@ def is_space_group_consistent(cif_str):
 
     # Get the detected space group
     detected_space_group = spacegroup_analyzer.get_space_group_symbol()
-    #print('stated space group:', stated_space_group)
-    #print('detected space group', detected_space_group)
 
     # Check if the detected space group matches the stated space group
     is_match = stated_space_group.strip() == detected_space_group.strip()
@@ -97,11 +95,7 @@ def is_formula_consistent(cif_str):
     formula_sum = Composition(cif_data[list(cif_data.keys())[0]]["_chemical_formula_sum"])
     formula_structural = Composition(cif_data[list(cif_data.keys())[0]]["_chemical_formula_structural"])
 
-    #print('formula data', formula_data.reduced_formula)
-    #print('formula sum', formula_sum.reduced_formula)
-    #print('formula structural', formula_structural.reduced_formula)
-
-    return formula_data.reduced_formula == formula_sum.reduced_formula# == formula_structural.reduced_formula
+    return formula_data.reduced_formula == formula_sum.reduced_formula == formula_structural.reduced_formula
 
 
 def is_atom_site_multiplicity_consistent(cif_str):
@@ -121,16 +115,14 @@ def is_atom_site_multiplicity_consistent(cif_str):
         if "_atom_site_type_symbol" in cif_data[key] and "_atom_site_symmetry_multiplicity" in cif_data[key]:
             for atom_type, multiplicity in zip(cif_data[key]["_atom_site_type_symbol"],
                                                cif_data[key]["_atom_site_symmetry_multiplicity"]):
-                #print('multiplicity:', atom_type, multiplicity)
+                
+                atom_type = re.sub(r'[0-9+-]', '', atom_type)
 
                 if atom_type in actual_atoms:
                     actual_atoms[atom_type] += int(multiplicity)
                 else:
                     actual_atoms[atom_type] = int(multiplicity)
 
-    # Validate if the expected and actual atom counts match
-    #print('expected_atoms', expected_atoms)
-    #print('actual_atoms', actual_atoms)
     return expected_atoms == actual_atoms
 
 
@@ -154,25 +146,14 @@ def is_sensible(cif_str, length_lo=0.5, length_hi=1000., angle_lo=10., angle_hi=
 
 
 def is_valid(cif_str, bond_length_acceptability_cutoff=1.0):
-    #print(cif_str)
-    #print()
     if not is_formula_consistent(cif_str):
-        #print('formula not consistent')
-        #print()
         return False
     if not is_atom_site_multiplicity_consistent(cif_str):
-        #print('ASM not consistent')
-        #print()
         return False
-    #bond_length_score = bond_length_reasonableness_score(cif_str)
-    #if bond_length_score < bond_length_acceptability_cutoff:
-    #    print('BLS not consistent')
-    #    return False
+    bond_length_score = bond_length_reasonableness_score(cif_str)
+    if bond_length_score < bond_length_acceptability_cutoff:
+        return False
     if not is_space_group_consistent(cif_str):
-        #print('SG not consistent')
-        #print()
         return False
-    #print('SUCCES')
-    #print()
     return True
 
