@@ -165,3 +165,6 @@ saved_models/
 
 CHILI-100K/
 **/*ckpt.pt
+**/*.tar.gz
+**/*.pkl.gz
+**/*.csv

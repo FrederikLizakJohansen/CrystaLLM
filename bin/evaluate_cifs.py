@@ -23,6 +23,7 @@ from crystallm import (
     is_sensible,
     is_valid,
     replace_symmetry_operators,
+    replace_symmetry_loop,
 )
 
 import warnings
@@ -75,6 +76,8 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
         try:
             if not is_sensible(cif, length_lo, length_hi, angle_lo, angle_hi):
                 raise Exception("CIF not sensible")
+
+            cif = replace_symmetry_loop(cif)
 
             gen_len = len(tokenizer.tokenize_cif(cif))
 
