@@ -168,3 +168,5 @@ CHILI-100K/
 **/*.tar.gz
 **/*.pkl.gz
 **/*.csv
+**/*.sh
+logs/
