@@ -40,6 +40,8 @@ class TrainDefaults:
     batch_size: int = 64  # if gradient_accumulation_steps > 1, this is the micro-batch size
     block_size: int = 2048  # context of up to `block_size` previous characters
 
+    cond_size: int 512
+
     # model
     n_layer: int = 12
     n_head: int = 12
@@ -183,7 +185,7 @@ if __name__ == "__main__":
         checkpoint_model_args = checkpoint["model_args"]
         # force these config attributes to be equal otherwise we can't even resume training;
         #  the rest of the attributes (e.g. dropout) can stay as desired
-        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
+        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size", "cond_size"]:
             model_args[k] = checkpoint_model_args[k]
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
@@ -203,7 +205,7 @@ if __name__ == "__main__":
         checkpoint_model_args = checkpoint["model_args"]
         # force these config attributes to be equal otherwise we can't even resume training;
         #  the rest of the attributes (e.g. dropout) can stay as desired
-        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
+        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size", "cond_size"]:
             model_args[k] = checkpoint_model_args[k]
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
