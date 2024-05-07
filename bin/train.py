@@ -46,6 +46,7 @@ class TrainDefaults:
     n_embd: int = 768
     dropout: float = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
     bias: bool = False  # do we use bias inside LayerNorm and Linear layers?
+    lora_r: int = 2
 
     # AdamW optimizer
     learning_rate: float = 6e-4  # max learning rate
