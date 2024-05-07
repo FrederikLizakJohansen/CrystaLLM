@@ -82,7 +82,7 @@ class CIFTokenizer:
 
         self._tokens_with_unk = list(self._tokens)
         self._tokens_with_unk.append(UNK_TOKEN)
-        self._tokens_with_unk.append(PAD_TOKEN)
+        #self._tokens_with_unk.append(PAD_TOKEN)
 
         # a mapping from characters to integers
         self._token_to_id = {ch: i for i, ch in enumerate(self._tokens_with_unk)}
@@ -179,6 +179,6 @@ class CIFTokenizer:
         
         # Pad to max size
         if self.pad_sequences:
-            tokens.extend([PAD_TOKEN] * (self.cif_sequence_len - len(tokens)))
+            tokens.extend([UNK_TOKEN] * (self.cif_sequence_len - len(tokens)))
 
         return tokens

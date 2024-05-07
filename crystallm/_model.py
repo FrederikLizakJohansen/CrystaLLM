@@ -356,7 +356,8 @@ class GPT(nn.Module):
         """
         tokenizer = CIFTokenizer()
         newline_id = tokenizer.token_to_id["\n"]
-        pad_id = tokenizer.token_to_id["<pad>"]
+        #pad_id = tokenizer.token_to_id["<pad>"]
+        unk_id = tokenizer.token_to_id["<unk>"]
         prev_id = None
         generation_pbar = tqdm(total=max_new_tokens, desc='Generating sequence', leave=False)
         for i in range(max_new_tokens):
@@ -379,7 +380,7 @@ class GPT(nn.Module):
             # a sequence of two newlines indicates the end of a CIF file
             if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
                 break
-            if prev_id is not None and idx_next.item() == pad_id:
+            if prev_id is not None and idx_next.item() == unk_id:
                 generation_pbar.update(max_new_tokens - i)
                 break
             prev_id = idx_next.item()
