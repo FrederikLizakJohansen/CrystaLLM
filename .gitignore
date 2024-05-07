@@ -170,3 +170,5 @@ CHILI-100K/
 **/*.csv
 **/*.sh
 logs/
+
+dataset/

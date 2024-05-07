@@ -40,7 +40,7 @@ class TrainDefaults:
     batch_size: int = 64  # if gradient_accumulation_steps > 1, this is the micro-batch size
     block_size: int = 2048  # context of up to `block_size` previous characters
 
-    cond_size: int 512
+    cond_vocab_size: int = 512 # Size of the conditioning vector
 
     # model
     n_layer: int = 12
@@ -113,7 +113,10 @@ if __name__ == "__main__":
         raise Exception("The 'dataset' option is required and cannot be empty")
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
+    cond_train_data = np.memmap(os.path.join(C.dataset, "cond_train.bin"), dtype=np.uint16, mode="r")
+    
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    cond_val_data = np.memmap(os.path.join(C.dataset, "cond_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -135,47 +138,76 @@ if __name__ == "__main__":
         on_condition=C.underrep_p > 0,
         required=True,
     )
+    
+    def sample_block(array, block_idx, block_size, sample_idx, seq_len):
+        end_index = (block_idx + block_size) % seq_len
+        if end_index >= block_idx:
+            return array[block_idx+sample_idx:end_index+sample_idx].astype(np.int64)
+        else:
+            return np.concatenate((array[block_idx+sample_idx:sample_idx+seq_len], array[sample_idx:end_index+sample_idx])).astype(np.int64)
 
-    def get_batch(split):
+    def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False):
+        # CIFs
         data = train_data if split == "train" else val_data
 
-        ix = torch.randint(len(data) - C.block_size, (C.batch_size,))
-        if split == "train":
-            if C.underrep_p is not None and np.random.random() < C.underrep_p:
-                ix = cif_start_indices_underrep[torch.randperm(len(cif_start_indices_underrep))[:C.batch_size]]
-            elif cif_start_indices is not None:
-                ix = cif_start_indices[torch.randperm(len(cif_start_indices))[:C.batch_size]]
-        elif cif_start_indices_val is not None:
-            ix = cif_start_indices_val[torch.randperm(len(cif_start_indices_val))[:C.batch_size]]
+        # Conditioning
+        cond_data = cond_train_data if split == "train" else cond_val_data
 
-        x = torch.stack([torch.from_numpy((data[i:i + C.block_size]).astype(np.int64)) for i in ix])
-        y = torch.stack([torch.from_numpy((data[i + 1:i + 1 + C.block_size]).astype(np.int64)) for i in ix])
+        # Choose training samples
+        num_data = len(data) // cif_seq_len
+        sample_idx = torch.randint(num_data, (batch_size,))
 
-        if device_type == "cuda":
-            # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-            x, y = x.pin_memory().to(C.device, non_blocking=True), y.pin_memory().to(C.device, non_blocking=True)
+        # Choose blocsk
+        block_idx = torch.randint(cif_seq_len, (batch_size,))
+
+        # Get x and y
+        x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
+        y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
+
+        # Get cond
+        cond = torch.stack([torch.from_numpy((cond_data[i*cond_seq_len:(i+1)*cond_seq_len]).astype(np.int64)) for i in sample_idx])
+
+        # Send to device
+        if C.device == "cuda":
+            x = x.pin_memory().to(C.device, non_blocking=True)
+            y = y.pin_memory().to(C.device, non_blocking=True)
+            cond = cond.pin_memory().to(C.device, non_blocking=True)
         else:
-            x, y = x.to(C.device), y.to(C.device)
-        return x, y
+            x = x.to(C.device)
+            y = y.to(C.device)
+            cond = cond.to(C.device)
+        
+        if not return_sample_idx:
+            return x, y, cond
+        else:
+            return x, y, cond, sample_idx
 
     iter_num = 0
     best_val_loss = 1e9
 
     meta_path = os.path.join(C.dataset, "meta.pkl")
-    meta_vocab_size = None
+    cif_vocab_size = None
     if os.path.exists(meta_path):
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
-        meta_vocab_size = meta["vocab_size"]
-        print(f"Found vocab_size = {meta_vocab_size} (inside {meta_path})", flush=True)
+        cif_vocab_size = meta['cif_vocab_size']
+        cond_vocab_size = meta['cond_vocab_size']
+        cif_seq_len = meta['cif_seq_len']
+        cond_seq_len = meta['cond_seq_len']
+        scattering_type = meta['scattering_type']
+        print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found cond_vocab_size = {cond_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found cif_seq_len = {cif_seq_len} (inside {meta_path})", flush=True)
+        print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
+
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
                       bias=C.bias, vocab_size=None, dropout=C.dropout)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
-        if meta_vocab_size is None:
+        if cif_vocab_size is None:
             print("Defaulting to vocab_size of 371...", flush=True)
-        model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 371
+        model_args["vocab_size"] = cif_vocab_size if cif_vocab_size is not None else 371
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
     elif C.init_from == "resume":
@@ -185,7 +217,7 @@ if __name__ == "__main__":
         checkpoint_model_args = checkpoint["model_args"]
         # force these config attributes to be equal otherwise we can't even resume training;
         #  the rest of the attributes (e.g. dropout) can stay as desired
-        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size", "cond_size"]:
+        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
             model_args[k] = checkpoint_model_args[k]
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
@@ -205,7 +237,7 @@ if __name__ == "__main__":
         checkpoint_model_args = checkpoint["model_args"]
         # force these config attributes to be equal otherwise we can't even resume training;
         #  the rest of the attributes (e.g. dropout) can stay as desired
-        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size", "cond_size"]:
+        for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
             model_args[k] = checkpoint_model_args[k]
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
@@ -221,6 +253,8 @@ if __name__ == "__main__":
 
         for name, param in model.named_parameters():
             if 'lora' in name:
+                param.requires_grad = True
+            elif 'condition' in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -253,9 +287,9 @@ if __name__ == "__main__":
         for split, eval_iters in [("train", C.eval_iters_train), ("val", C.eval_iters_val)]:
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
-                X, Y = get_batch(split)
+                X, Y, COND = get_batch(split)
                 with ctx:
-                    logits, loss = model(X, Y)
+                    logits, loss = model(X, COND, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()
         model.train()
@@ -276,7 +310,7 @@ if __name__ == "__main__":
         return C.min_lr + coeff * (C.learning_rate - C.min_lr)
 
     # training loop
-    X, Y = get_batch("train")
+    X, Y, COND = get_batch("train")
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     running_mfu = -1.0
@@ -312,9 +346,9 @@ if __name__ == "__main__":
         # and using the GradScaler if data type is float16
         for micro_step in range(C.gradient_accumulation_steps):
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss = model(X, COND, Y)
             # immediately async prefetch next batch while model is doing the forward pass on the GPU
-            X, Y = get_batch("train")
+            X, Y, COND = get_batch("train")
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
         # clip the gradient

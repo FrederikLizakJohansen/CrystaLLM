@@ -1,5 +1,6 @@
 import os
 import re
+import numpy as np
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -55,9 +56,16 @@ EXTENDED_KEYWORDS = [
 
 UNK_TOKEN = "<unk>"
 
+PAD_TOKEN = "<pad>"
+
 
 class CIFTokenizer:
-    def __init__(self):
+    def __init__(
+        self,
+        cond_vocab_size: int = 100,
+        cif_sequence_len: int = 5000,
+        pad_sequences: bool = False,
+    ):
         self._tokens = list(self.atoms())
         self._tokens.extend(self.digits())
         self._tokens.extend(self.keywords())
@@ -74,6 +82,7 @@ class CIFTokenizer:
 
         self._tokens_with_unk = list(self._tokens)
         self._tokens_with_unk.append(UNK_TOKEN)
+        self._tokens_with_unk.append(PAD_TOKEN)
 
         # a mapping from characters to integers
         self._token_to_id = {ch: i for i, ch in enumerate(self._tokens_with_unk)}
@@ -82,6 +91,16 @@ class CIFTokenizer:
         #  for decoding convenience
         for sg in space_groups_sg:
             self._id_to_token[self.token_to_id[sg]] = sg.replace("_sg", "")
+
+        # PAdding
+        self.cif_sequence_len = cif_sequence_len
+        self.pad_sequences = pad_sequences
+        
+        # Cond
+        self.cond_vocab_size = cond_vocab_size
+        self.scattering_bin_edges = np.linspace(0,1, cond_vocab_size-1)
+        self._scattering_to_id = lambda y: np.digitize(y, self.scattering_bin_edges)
+        self._id_to_scattering = {i: n for i, n in enumerate(self.scattering_bin_edges)}
 
     @staticmethod
     def atoms():
@@ -112,6 +131,14 @@ class CIFTokenizer:
     @property
     def id_to_token(self):
         return dict(self._id_to_token)
+    
+    @property
+    def scattering_to_id(self):
+        return self._scattering_to_id
+
+    @property
+    def id_to_scattering(self):
+        return dict(self._id_to_scattering)
 
     def encode(self, tokens):
         # encoder: take a list of tokens, output a list of integers
@@ -120,6 +147,14 @@ class CIFTokenizer:
     def decode(self, ids):
         # decoder: take a list of integers (i.e. encoded tokens), output a string
         return ''.join([self._id_to_token[i] for i in ids])
+    
+    def encode_scattering(self, y):
+        # Encoder for scattering; takes a continues signal and discretize it into ids on interval -1 to 1
+        return list(self._scattering_to_id(y))
+    
+    def decode_scattering(self, ids):
+        # Decoder for scattering; takes a list of integers, i.e. encoded continues signal, outputs the signal between -1 and 1
+        return [self._id_to_scattering[i] for i in ids]
 
     def tokenize_cif(self, cif_string, single_spaces=True):
         # Preprocessing step to replace '_symmetry_space_group_name_H-M Pm'
@@ -141,5 +176,9 @@ class CIFTokenizer:
 
         # Replace unrecognized tokens with the unknown_token
         tokens = [token if token in self._tokens else UNK_TOKEN for token in tokens]
+        
+        # Pad to max size
+        if self.pad_sequences:
+            tokens.extend([PAD_TOKEN] * (self.cif_sequence_len - len(tokens)))
 
         return tokens

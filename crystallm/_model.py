@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from crystallm import CIFTokenizer
+from tqdm.auto import tqdm
 
 
 class LoRALayer(nn.Module):
@@ -32,7 +33,7 @@ class LoRALayer(nn.Module):
 class GPTConfig:
     block_size: int = 1024
     vocab_size: int = 371
-    cond_size: int = 512
+    cond_vocab_size: int = 100
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -183,10 +184,11 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
+        self.condition_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
+
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
             wpe=nn.Embedding(config.block_size, config.n_embd),
-            ce=nn.Embedding(config.cond_vocab_size, config.n_embd)
             drop=nn.Dropout(config.dropout),
             h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f=LayerNorm(config.n_embd, bias=config.bias),
@@ -238,11 +240,16 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
-        cond_emb = self.transformer.ce(cond)
-        x = self.transformer.drop(tok_emb + pos_emb + cond_emb)
+        x = self.transformer.drop(tok_emb + pos_emb)
+        
+        cond_emb = self.condition_emb(cond)
+        x = torch.concat((cond_emb, x), dim=1)
+        
         for block in self.transformer.h:
             x = block(x)
+
         x = self.transformer.ln_f(x)
+        x = x[:,cond_emb.shape[1]:,:]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -296,6 +303,8 @@ class GPT(nn.Module):
 
                 if 'lora' in fpn:
                     no_decay.add(fpn)
+                if 'cond' in fpn:
+                    no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they
         # will appear in the no_decay and decay sets respectively after the above.
@@ -347,8 +356,10 @@ class GPT(nn.Module):
         """
         tokenizer = CIFTokenizer()
         newline_id = tokenizer.token_to_id["\n"]
+        pad_id = tokenizer.token_to_id["<pad>"]
         prev_id = None
-        for _ in range(max_new_tokens):
+        generation_pbar = tqdm(total=max_new_tokens, desc='Generating sequence', leave=False)
+        for i in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
@@ -368,6 +379,11 @@ class GPT(nn.Module):
             # a sequence of two newlines indicates the end of a CIF file
             if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
                 break
+            if prev_id is not None and idx_next.item() == pad_id:
+                generation_pbar.update(max_new_tokens - i)
+                break
             prev_id = idx_next.item()
+            generation_pbar.update(1)
+        generation_pbar.close()
 
         return idx
