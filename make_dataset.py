@@ -43,7 +43,7 @@ class DefaultDatasetConfig:
     cond_vocab_size: int = 100
     cif_sequence_len: int = 6000
     
-    debug_max: int = 3000
+    debug_max: int = 120
 
     device: str = 'cuda'
 
@@ -92,14 +92,12 @@ def make_dataset(
     cifs = cifs[:config.debug_max]
     #cifs = sorted(glob(os.path.join(config.cif_folder, '*.cif')))[:config.debug_max]
     random.shuffle(cifs)
-    config.n_train = math.ceil((1.0 - config.val_size - config.test_size) * len(cifs))
-    config.n_val = int(config.val_size * len(cifs))
-    config.n_test = int(config.test_size * len(cifs))
-    assert config.n_train + config.n_val + config.n_test == len(cifs), "Impossible data split"
-
-    cifs_train = cifs[:config.n_train]
-    cifs_val = cifs[config.n_train:config.n_train+config.n_val]
-    cifs_test = cifs[config.n_train+config.n_val:]
+    train_end = int((1.0 - config.val_size - config.test_size) * len(cifs))
+    val_end = train_end + int(config.val_size * len(cifs))
+    
+    cifs_train = cifs[:train_end]
+    cifs_val = cifs[train_end:val_end]
+    cifs_test = cifs[val_end:]
     assert len(cifs_train) + len(cifs_val) + len(cifs_test) == len(cifs), "Incorrect data split"
         
     # Test size
@@ -145,6 +143,7 @@ def make_dataset(
                 scat_ids = tokenizer.encode_scattering(scat_data)
 
             except Exception as e:
+                print(e)
                 continue
                 #raise e
 
