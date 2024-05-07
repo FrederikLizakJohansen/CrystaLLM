@@ -34,7 +34,7 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cifs_fname: str = 'CHILI-100K/cifs_prep.pkl.gz'
+    cifs_fname: str = 'CHILI-100K/CHILI-100K_prep.pkl.gz'
     cifs_path: str = 'CHILI-100K/cifs'
     val_size: float = 0.2
     test_size: float = 0.1
