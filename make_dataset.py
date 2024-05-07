@@ -51,11 +51,8 @@ class DefaultDatasetConfig:
     dataset_name: str = 'CHILI-100K_small'
 
 
-def cif_to_scattering(cif_path, scattering_type, num_points, **debye_kwargs):
+def cif_to_scattering(cif_path, scattering_type, num_points, calc):
     assert cif_path.endswith(".cif")
-
-    # Make calculator
-    calc = DebyeCalculator(**debye_kwargs)
     
     # Open cif in DebyeCalculator
     if scattering_type == "pdf":
@@ -131,6 +128,9 @@ def make_dataset(
         batch_id = 0
         cif_ids = []
         cond_ids = []
+    
+        # Make calculator
+        calc = DebyeCalculator(**config.debye_kwargs)
 
         for cif in tqdm(cif_list, total=len(cif_list), desc=f'Generating data with tag "{bin_prefix}"...'):
             try:
@@ -140,7 +140,7 @@ def make_dataset(
                 ids = tokenizer.encode(tokens)
 
                 # Extract scattering data and tokenize
-                scat_data = cif_to_scattering(os.path.join(config.cifs_path, fname + '.cif'), config.scattering_type, config.cond_sequence_len, **config.debye_kwargs)
+                scat_data = cif_to_scattering(os.path.join(config.cifs_path, fname + '.cif'), config.scattering_type, config.cond_sequence_len, calc)
                 #scat_data = tokenizer.process_scattering(cif, config.cond_sequence_len)
                 scat_ids = tokenizer.encode_scattering(scat_data)
 
