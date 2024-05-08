@@ -16,6 +16,7 @@ import numpy as np
 import torch
 import pickle
 from contextlib import nullcontext
+from tqdm.auto import tqdm
 
 from crystallm import (
     GPT,
@@ -344,6 +345,7 @@ if __name__ == "__main__":
 
         # forward backward update, with optional gradient accumulation to simulate larger batch size
         # and using the GradScaler if data type is float16
+        small_step_pbar = tqdm(desc='Accumulating losses...', total=C.gradient_accumulation_steps, leave=False)
         for micro_step in range(C.gradient_accumulation_steps):
             with ctx:
                 logits, loss = model(X, COND, Y)
@@ -351,6 +353,8 @@ if __name__ == "__main__":
             X, Y, COND = get_batch("train")
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
+            small_step_pbar.update(1)
+        small_step_pbar.close()
         # clip the gradient
         if C.grad_clip != 0.0:
             scaler.unscale_(optimizer)

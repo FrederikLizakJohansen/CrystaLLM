@@ -1,4 +1,4 @@
-out_dir: 'crystallm_v1_small_debug'
+out_dir: 'crystallm_v1_small_debug_finetune'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 10
 eval_iters_val: 10
