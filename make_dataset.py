@@ -161,7 +161,7 @@ def make_dataset(
         # Save cif split
         with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
             for cif in cif_list:
-                f.write(fname)
+                f.write(fname + '\n')
                 #f.write(str(cif).split("/")[-1] + '\n')
 
     # Iterate training data
