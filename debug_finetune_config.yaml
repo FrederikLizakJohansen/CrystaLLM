@@ -4,8 +4,8 @@ eval_iters_train: 10
 eval_iters_val: 10
 log_interval: 1  # how often to print to the console (1 = every iteration)
 init_from: 'finetune'
-device: 'cpu'
-compile: False
+device: 'cuda'
+compile: True
 
 dtype: 'float16'
 
