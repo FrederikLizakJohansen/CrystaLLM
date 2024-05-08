@@ -40,6 +40,7 @@ class TrainDefaults:
     gradient_accumulation_steps: int = 40  # used to simulate larger batch sizes
     batch_size: int = 64  # if gradient_accumulation_steps > 1, this is the micro-batch size
     block_size: int = 2048  # context of up to `block_size` previous characters
+    accumulative_pbar: bool = True
 
     cond_vocab_size: int = 512 # Size of the conditioning vector
 
@@ -345,7 +346,7 @@ if __name__ == "__main__":
 
         # forward backward update, with optional gradient accumulation to simulate larger batch size
         # and using the GradScaler if data type is float16
-        small_step_pbar = tqdm(desc='Accumulating losses...', total=C.gradient_accumulation_steps, leave=False)
+        small_step_pbar = tqdm(desc='Accumulating losses...', total=C.gradient_accumulation_steps, leave=False, disable=not C.accumulative_pbar)
         for micro_step in range(C.gradient_accumulation_steps):
             with ctx:
                 logits, loss = model(X, COND, Y)
