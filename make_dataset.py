@@ -14,6 +14,7 @@ import pickle
 from debyecalculator import DebyeCalculator
 from signal_functionals import MMIS, minmax_transform
 from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -39,8 +40,8 @@ class DefaultDatasetConfig:
     val_size: float = 0.2
     test_size: float = 0.1
     
-    cond_sequence_len: int = 512
-    cond_vocab_size: int = 100
+    cond_sequence_len: int = 100
+    cond_vocab_size: int = 10
     cif_sequence_len: int = 6000
     
     debug_max: int = 120
@@ -51,7 +52,7 @@ class DefaultDatasetConfig:
     dataset_name: str = 'CHILI-100K_small'
 
 
-def cif_to_scattering(cif_path, scattering_type, num_points, calc):
+def cif_to_scattering(cif_path, scattering_type, num_points, calc, pl=False):
     assert cif_path.endswith(".cif")
     
     # Open cif in DebyeCalculator
@@ -71,6 +72,11 @@ def cif_to_scattering(cif_path, scattering_type, num_points, calc):
 
     # Make new points
     x = np.linspace(xmin, xmax, num_points)
+
+    if pl:
+        fig = plt.figure()
+        plt.plot(x, f(x))
+        fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
     
     return f(x)
     
