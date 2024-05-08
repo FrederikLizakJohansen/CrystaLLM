@@ -16,6 +16,8 @@ from signal_functionals import MMIS, minmax_transform
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
+from multiprocessing import Pool
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -45,14 +47,19 @@ class DefaultDatasetConfig:
     cif_sequence_len: int = 6000
     
     debug_max: int = 120
+    check_block_size: bool = False
+    workers: int = 3
 
     device: str = 'cuda'
 
     output: str = 'dataset'
     dataset_name: str = 'CHILI-100K_small'
 
+def cif_to_scattering(cif_path, scattering_type, num_points, pl=False):
+    
+    # Make calculator
+    calc = DebyeCalculator(**config.debye_kwargs)
 
-def cif_to_scattering(cif_path, scattering_type, num_points, calc, pl=False):
     assert cif_path.endswith(".cif")
     
     # Open cif in DebyeCalculator
@@ -79,9 +86,8 @@ def cif_to_scattering(cif_path, scattering_type, num_points, calc, pl=False):
         fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
     
     return f(x)
-    
 
-def make_dataset(
+def prepare_split(
     config: DefaultDatasetConfig
 ):
     # Init Tokenizer
@@ -96,7 +102,6 @@ def make_dataset(
     with gzip.open(config.cifs_fname, "rb") as f:
         cifs = pickle.load(f)
     cifs = cifs[:config.debug_max]
-    #cifs = sorted(glob(os.path.join(config.cif_folder, '*.cif')))[:config.debug_max]
     random.shuffle(cifs)
     train_end = int((1.0 - config.val_size - config.test_size) * len(cifs))
     val_end = train_end + int(config.val_size * len(cifs))
@@ -106,16 +111,18 @@ def make_dataset(
     cifs_test = cifs[val_end:]
     assert len(cifs_train) + len(cifs_val) + len(cifs_test) == len(cifs), "Incorrect data split"
         
-    # Test size
-    sizes = []
-    for cif_list in [cifs_train, cifs_val, cifs_test]:
-        for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
-            fname, cif_content = cif
-            tokens = tokenizer.tokenize_cif(cif_content)
-            sizes.append(len(tokens))
+    # Checking that the block size matches and that there is no overflow
+    if config.check_block_size:
+        sizes = []
+        for cif_list in [cifs_train, cifs_val, cifs_test]:
+            for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
+                fname, cif_content = cif
+                tokens = tokenizer.tokenize_cif(cif_content)
+                sizes.append(len(tokens))
 
-    print('Average size:', np.mean(sizes), '+-', np.std(sizes))
-    print('Min/Max size:', np.min(sizes), '/', np.max(sizes))
+        print('Average size:', np.mean(sizes), '+-', np.std(sizes))
+        print('Min/Max size:', np.min(sizes), '/', np.max(sizes))
+        assert np.max(sizes) <= config.cif_sequence_len
 
     # Make folder
     config.dataset_path = os.path.join(config.output, config.dataset_name)
@@ -123,58 +130,7 @@ def make_dataset(
         os.mkdir(config.output)
     if not os.path.exists(config.dataset_path):
         os.mkdir(config.dataset_path)
-
-    def save_dataset(
-        cif_list,
-        bin_prefix,
-    ):
-        # Loop
-        batch_id = 0
-        cif_ids = []
-        cond_ids = []
     
-        # Make calculator
-        calc = DebyeCalculator(**config.debye_kwargs)
-
-        for cif in tqdm(cif_list, total=len(cif_list), desc=f'Generating data with tag "{bin_prefix}"...'):
-            try:
-                # Extract cif content and tokenize
-                fname, cif_content = cif #tokenizer.process_cif(cif)
-                tokens = tokenizer.tokenize_cif(cif_content)
-                ids = tokenizer.encode(tokens)
-
-                # Extract scattering data and tokenize
-                scat_data = cif_to_scattering(os.path.join(config.cifs_path, fname + '.cif'), config.scattering_type, config.cond_sequence_len, calc)
-                #scat_data = tokenizer.process_scattering(cif, config.cond_sequence_len)
-                scat_ids = tokenizer.encode_scattering(scat_data)
-
-            except Exception as e:
-                print(e)
-                continue
-                #raise e
-
-            cif_ids.append(ids)
-            cond_ids.append(scat_ids)
-
-        cif_ids = np.array(cif_ids, dtype=np.uint16)
-        cond_ids = np.array(cond_ids, dtype = np.uint16)
-
-        # Save binary files
-        print(f"Saving binary files for tag: {bin_prefix}")
-        cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
-        cond_ids.tofile(os.path.join(config.dataset_path, 'cond_' + bin_prefix + '.bin'))
-
-        # Save cif split
-        with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
-            for fname, cif in cif_list:
-                f.write(fname + '\n')
-                #f.write(str(cif).split("/")[-1] + '\n')
-
-    # Iterate training data
-    save_dataset(cifs_train, 'train')
-    save_dataset(cifs_val, 'val')
-    save_dataset(cifs_test, 'test')
-
     # Save meta data
     print(f"Saving meta data")
     meta = {
@@ -193,7 +149,54 @@ def make_dataset(
     with open(os.path.join(config.dataset_path, 'meta.pkl'), "wb") as f:
         pickle.dump(meta, f)
 
-    print("Finished")
+    return cifs_train, cifs_val, cifs_test
+
+def process_cif(
+    args,
+):
+    config, cif = args
+    fname, cif = cif
+    # Tokenizer
+    tokenizer = CIFTokenizer(
+        cond_vocab_size = config.cond_vocab_size,
+        cif_sequence_len = config.cif_sequence_len,
+        pad_sequences = True,
+    )
+    
+    try:
+        tokens = tokenizer.tokenize_cif(cif)
+        ids = tokenizer.encode(tokens)
+        scat_data = cif_to_scattering(
+            os.path.join(config.cifs_path, fname + '.cif'),
+            config.scattering_type, 
+            config.cond_sequence_len, 
+        )
+        scat_ids = tokenizer.encode_scattering(scat_data)
+        return ids, scat_ids, fname
+    except:
+        return None, None, None
+
+def save_dataset_parallel(config, cifs, bin_prefix):
+    args = [(config, cif) for cif in cifs]
+    with Pool(processes=config.workers) as pool:
+        results = list(tqdm(pool.imap(process_cif, args), total=len(args)))
+
+    cif_ids = [res[0] for res in results]
+    cond_ids = [res[1] for res in results]
+    fnames = [res[2] for res in results]
+
+    cif_ids = np.array(cif_ids, dtype=np.uint16)
+    cond_ids = np.array(cond_ids, dtype = np.uint16)
+        
+    # Save binary files
+    print(f"Saving binary files for tag: {bin_prefix}")
+    cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
+    cond_ids.tofile(os.path.join(config.dataset_path, 'cond_' + bin_prefix + '.bin'))
+        
+    # Save cif split
+    with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
+        for fname, cif in cifs:
+            f.write(fname + '\n')
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='Script for generating deCIFer dataset')
@@ -208,5 +211,6 @@ if __name__ == "__main__":
     else:
         config = DefaultDatasetConfig()
 
-    # Run generation
-    make_dataset(config)
+    cifs_train, cifs_val, cifs_test = prepare_split(config)
+
+    save_dataset_parallel(config, cifs_train, 'train')
