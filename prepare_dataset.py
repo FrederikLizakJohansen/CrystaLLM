@@ -1,4 +1,5 @@
 import argparse
+import io
 import os
 import yaml
 import gzip
@@ -15,6 +16,8 @@ from debyecalculator import DebyeCalculator
 from signal_functionals import MMIS, minmax_transform
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
+
+from ase.io import read
 
 from multiprocessing import Pool
 
@@ -37,8 +40,7 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cifs_fname: str = 'CHILI-100K/CHILI-100K_prep.pkl.gz'
-    cifs_path: str = 'CHILI-100K/cifs'
+    cifs_fname: str = 'CHILI-100K_prep.pkl.gz'
     val_size: float = 0.2
     test_size: float = 0.1
     
@@ -55,21 +57,19 @@ class DefaultDatasetConfig:
     output: str = 'dataset'
     dataset_name: str = 'CHILI-100K_small'
 
-def cif_to_scattering(cif_path, scattering_type, num_points, pl=False):
+def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     
     # Make calculator
     calc = DebyeCalculator(**config.debye_kwargs)
-
-    assert cif_path.endswith(".cif")
     
     # Open cif in DebyeCalculator
     if scattering_type == "pdf":
-        x, y = calc.gr(cif_path, radii=calc.rmax/2, keep_on_device=True)
+        x, y = calc.gr(ase_obj, radii=calc.rmax/2, keep_on_device=True)
         x = x.cpu().numpy()
         y = MMIS(y).cpu().numpy()
         xmin, xmax = calc.rmin, calc.rmax
     elif scattering_type == "xrd":
-        x, y = calc.iq(cif_path, radii=calc.rmax/2, keep_on_device=True)
+        x, y = calc.iq(ase_obj, radii=calc.rmax/2, keep_on_device=True)
         x = x.cpu().numpy()
         y = minmax_transform(y).cpu().numpy()
         xmin, xmax = calc.qmin, calc.qmax
@@ -85,7 +85,7 @@ def cif_to_scattering(cif_path, scattering_type, num_points, pl=False):
         plt.plot(x, f(x))
         fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
     
-    return f(x)
+    return x, f(x)
 
 def prepare_split(
     config: DefaultDatasetConfig
@@ -138,6 +138,10 @@ def prepare_split(
         "cif_vocab_size": len(tokenizer.token_to_id),
 
         "cond_seq_len": config.cond_sequence_len,
+        "xy_shape_train": (len(cifs_train), 2, config.cond_sequence_len), # Will not work if anything fails
+        "xy_shape_val": (len(cifs_val), 2, config.cond_sequence_len), # Will not work if anything fails
+        "xy_shape_test": (len(cifs_test), 2, config.cond_sequence_len), # Will not work if anything fails
+
         "cond_vocab_size": tokenizer.cond_vocab_size,
 
         "id_to_token": tokenizer.id_to_token,
@@ -156,6 +160,8 @@ def process_cif(
 ):
     config, cif = args
     fname, cif = cif
+    ase_obj = read(io.StringIO(cif), format='cif')
+
     # Tokenizer
     tokenizer = CIFTokenizer(
         cond_vocab_size = config.cond_vocab_size,
@@ -166,14 +172,17 @@ def process_cif(
     try:
         tokens = tokenizer.tokenize_cif(cif)
         ids = tokenizer.encode(tokens)
-        scat_data = cif_to_scattering(
-            os.path.join(config.cifs_path, fname + '.cif'),
+        prefix  = interpolated_scattering(
+            ase_obj,
             config.scattering_type, 
-            config.cond_sequence_len, 
+            config.cond_sequence_len,
         )
-        scat_ids = tokenizer.encode_scattering(scat_data)
-        return ids, scat_ids, fname
-    except:
+        #y_ids = tokenizer.encode_scattering(y)
+        #x_ids = tokenizer.encode_
+        #return ids, scat_ids, fname
+        return ids, prefix, fname
+    except Exception as e:
+        raise e
         return None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
@@ -182,16 +191,20 @@ def save_dataset_parallel(config, cifs, bin_prefix):
         results = list(tqdm(pool.imap(process_cif, args), total=len(args)))
 
     cif_ids = [res[0] for res in results]
-    cond_ids = [res[1] for res in results]
+    xy = [res[1] for res in results]
+    xy = np.array(xy, dtype=np.float32)
     fnames = [res[2] for res in results]
 
     cif_ids = np.array(cif_ids, dtype=np.uint16)
-    cond_ids = np.array(cond_ids, dtype = np.uint16)
+    #cond_ids = np.array(cond_ids, dtype = np.uint16)
         
     # Save binary files
     print(f"Saving binary files for tag: {bin_prefix}")
     cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
-    cond_ids.tofile(os.path.join(config.dataset_path, 'cond_' + bin_prefix + '.bin'))
+    #cond_ids.tofile(os.path.join(config.dataset_path, 'cond_' + bin_prefix + '.bin'))
+    mmapped_data = np.memmap(os.path.join(config.dataset_path, 'prefix_' + bin_prefix + '.dat'), dtype='float32', mode='w+', shape=xy.shape)
+    mmapped_data[:] = xy[:]
+    del mmapped_data
         
     # Save cif split
     with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
@@ -214,3 +227,5 @@ if __name__ == "__main__":
     cifs_train, cifs_val, cifs_test = prepare_split(config)
 
     save_dataset_parallel(config, cifs_train, 'train')
+    save_dataset_parallel(config, cifs_val, 'val')
+    save_dataset_parallel(config, cifs_test, 'test')

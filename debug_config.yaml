@@ -4,8 +4,8 @@ eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
 init_from: 'scratch'
-device: 'cuda'
-compile: True
+device: 'cpu'
+compile: False
 
 dtype: 'float16'
 

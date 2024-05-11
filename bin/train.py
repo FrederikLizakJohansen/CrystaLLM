@@ -43,6 +43,7 @@ class TrainDefaults:
     accumulative_pbar: bool = True
 
     cond_vocab_size: int = 512 # Size of the conditioning vector
+    cond_seq_len: int = 100 # TODO Will be faulty 
 
     # model
     n_layer: int = 12
@@ -113,12 +114,37 @@ if __name__ == "__main__":
 
     if not C.dataset:
         raise Exception("The 'dataset' option is required and cannot be empty")
+    
+    meta_path = os.path.join(C.dataset, "meta.pkl")
+    cif_vocab_size = None
+    if os.path.exists(meta_path):
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+        cif_vocab_size = meta['cif_vocab_size']
+        cond_vocab_size = meta['cond_vocab_size']
+        cif_seq_len = meta['cif_seq_len']
+        cond_seq_len = meta['cond_seq_len']
+        C.cond_seq_len = cond_seq_len
+        scattering_type = meta['scattering_type']
+        xy_shape_train = meta['xy_shape_train']
+        xy_shape_val = meta['xy_shape_val']
+        xy_shape_test = meta['xy_shape_test']
+
+        print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found cond_vocab_size = {cond_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found cif_seq_len = {cif_seq_len} (inside {meta_path})", flush=True)
+        print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
+        print(f"Found xy_shape_train = {xy_shape_train} (inside {meta_path})", flush=True)
+        print(f"Found xy_shape_val = {xy_shape_val} (inside {meta_path})", flush=True)
+        print(f"Found xy_shape_test = {xy_shape_test} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
-    cond_train_data = np.memmap(os.path.join(C.dataset, "cond_train.bin"), dtype=np.uint16, mode="r")
+    #cond_train_data = np.memmap(os.path.join(C.dataset, "cond_train.bin"), dtype=np.uint16, mode="r")
+    prefix_train_data = np.memmap(os.path.join(C.dataset, "prefix_train.dat"), dtype='float32', mode='r', shape=xy_shape_train)
     
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    cond_val_data = np.memmap(os.path.join(C.dataset, "cond_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    #cond_val_data = np.memmap(os.path.join(C.dataset, "cond_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    prefix_val_data = np.memmap(os.path.join(C.dataset, "prefix_val.dat"), dtype='float32', mode='r', shape=xy_shape_val) if C.validate else None
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -152,8 +178,8 @@ if __name__ == "__main__":
         # CIFs
         data = train_data if split == "train" else val_data
 
-        # Conditioning
-        cond_data = cond_train_data if split == "train" else cond_val_data
+        # Prefix
+        prefix_data = prefix_train_data if split == "train" else prefix_val_data
 
         # Choose training samples
         num_data = len(data) // cif_seq_len
@@ -166,45 +192,36 @@ if __name__ == "__main__":
         x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
         y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
 
-        # Get cond
-        cond = torch.stack([torch.from_numpy((cond_data[i*cond_seq_len:(i+1)*cond_seq_len]).astype(np.int64)) for i in sample_idx])
+        # Get prefix
+        #prefix = torch.stack([torch.from_numpy((cond_data[i*cond_seq_len:(i+1)*cond_seq_len]).astype(np.int64)) for i in sample_idx])
+        prefix_x = torch.stack([torch.from_numpy((prefix_data[i][0])) for i in sample_idx])
+        prefix_y = torch.stack([torch.from_numpy((prefix_data[i][1])) for i in sample_idx])
 
         # Send to device
         if C.device == "cuda":
             x = x.pin_memory().to(C.device, non_blocking=True)
             y = y.pin_memory().to(C.device, non_blocking=True)
-            cond = cond.pin_memory().to(C.device, non_blocking=True)
+            prefix_x = prefix_x.pin_memory().to(C.device, non_blocking=True)
+            prefix_y = prefix_y.pin_memory().to(C.device, non_blocking=True)
+            #cond = cond.pin_memory().to(C.device, non_blocking=True)
         else:
             x = x.to(C.device)
             y = y.to(C.device)
-            cond = cond.to(C.device)
+            prefix_x = prefix_x.to(C.device)
+            prefix_y = prefix_y.to(C.device)
+            #cond = cond.to(C.device)
         
         if not return_sample_idx:
-            return x, y, cond
+            return x, y, prefix_x, prefix_y
         else:
-            return x, y, cond, sample_idx
+            return x, y, prefix_x, prefix_y, sample_idx
 
     iter_num = 0
     best_val_loss = 1e9
 
-    meta_path = os.path.join(C.dataset, "meta.pkl")
-    cif_vocab_size = None
-    if os.path.exists(meta_path):
-        with open(meta_path, "rb") as f:
-            meta = pickle.load(f)
-        cif_vocab_size = meta['cif_vocab_size']
-        cond_vocab_size = meta['cond_vocab_size']
-        cif_seq_len = meta['cif_seq_len']
-        cond_seq_len = meta['cond_seq_len']
-        scattering_type = meta['scattering_type']
-        print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found cond_vocab_size = {cond_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found cif_seq_len = {cif_seq_len} (inside {meta_path})", flush=True)
-        print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
-
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
-                      bias=C.bias, vocab_size=None, dropout=C.dropout)
+                      bias=C.bias, vocab_size=None, dropout=C.dropout, cond_seq_len=cond_seq_len)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:
@@ -256,7 +273,7 @@ if __name__ == "__main__":
         for name, param in model.named_parameters():
             if 'lora' in name:
                 param.requires_grad = True
-            elif 'condition' in name:
+            elif 'prefix' in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -289,9 +306,9 @@ if __name__ == "__main__":
         for split, eval_iters in [("train", C.eval_iters_train), ("val", C.eval_iters_val)]:
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
-                X, Y, COND = get_batch(split)
+                X, Y, PREFIX_X, PREFIX_Y = get_batch(split)
                 with ctx:
-                    logits, loss = model(X, COND, Y)
+                    logits, loss = model(X, PREFIX_X, PREFIX_Y, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()
         model.train()
@@ -312,7 +329,7 @@ if __name__ == "__main__":
         return C.min_lr + coeff * (C.learning_rate - C.min_lr)
 
     # training loop
-    X, Y, COND = get_batch("train")
+    X, Y, PREFIX_X, PREFIX_Y = get_batch("train")
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     running_mfu = -1.0
@@ -349,9 +366,9 @@ if __name__ == "__main__":
         small_step_pbar = tqdm(desc='Accumulating losses...', total=C.gradient_accumulation_steps, leave=False, disable=not C.accumulative_pbar)
         for micro_step in range(C.gradient_accumulation_steps):
             with ctx:
-                logits, loss = model(X, COND, Y)
+                logits, loss = model(X, PREFIX_X, PREFIX_Y, Y)
             # immediately async prefetch next batch while model is doing the forward pass on the GPU
-            X, Y, COND = get_batch("train")
+            X, Y, PREFIX_X, PREFIX_Y = get_batch("train")
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
             small_step_pbar.update(1)

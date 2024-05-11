@@ -33,7 +33,8 @@ class LoRALayer(nn.Module):
 class GPTConfig:
     block_size: int = 1024
     vocab_size: int = 371
-    cond_vocab_size: int = 100
+    cond_seq_len: int = 100 # TODO
+    #cond_vocab_size: int = 100
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -184,7 +185,13 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
-        self.condition_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
+        # TODO Either I need to predefine the vocab for the x and y
+        # Or I simple inject the values as continues input and pass them all through a
+        # linear layer.
+
+        self.prefix_x_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
+        self.prefix_y_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
+        self.prefix_drop = nn.Dropout(config.dropout)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
@@ -231,7 +238,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, cond, targets=None):
+    def forward(self, idx, prefix_x, prefix_y, targets=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -242,14 +249,19 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         
-        cond_emb = self.condition_emb(cond)
-        x = torch.concat((cond_emb, x), dim=1)
+        # Forward the prefix
+        prefix_x_emb  = self.prefix_x_emb(prefix_x)
+        prefix_y_emb = self.prefix_y_emb(prefix_y)
+        prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+
+        # Concat prefix
+        x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
             x = block(x)
 
         x = self.transformer.ln_f(x)
-        x = x[:,cond_emb.shape[1]:,:]
+        x = x[:,prefix.shape[1]:,:]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -303,8 +315,8 @@ class GPT(nn.Module):
 
                 if 'lora' in fpn:
                     no_decay.add(fpn)
-                if 'cond' in fpn:
-                    no_decay.add(fpn)
+                #if 'prefix' in fpn:
+                #    no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they
         # will appear in the no_decay and decay sets respectively after the above.
@@ -348,7 +360,7 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, cond, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, prefix_x, prefix_y, max_new_tokens, temperature=1.0, top_k=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -364,7 +376,7 @@ class GPT(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond, cond)
+            logits, _ = self(idx_cond, prefix_x, prefix_y)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
