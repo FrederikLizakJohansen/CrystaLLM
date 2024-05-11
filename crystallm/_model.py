@@ -35,6 +35,7 @@ class GPTConfig:
     vocab_size: int = 371
     prefix_x_vocab_size: int = 10
     prefix_y_vocab_size: int = 10
+    prefix_size: int = 250
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -190,6 +191,8 @@ class GPT(nn.Module):
 
         self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
         self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
+
+        self.prefix_y_linear = nn.Linear(config.prefix_size, config.n_embd)
         self.prefix_drop = nn.Dropout(config.dropout)
 
         self.transformer = nn.ModuleDict(dict(
@@ -249,9 +252,13 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
         
         # Forward the prefix
-        prefix_x_emb  = self.prefix_x_emb(prefix_x)
-        prefix_y_emb = self.prefix_y_emb(prefix_y)
-        prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+        #print(prefix_x)
+        #prefix_x_emb  = self.prefix_x_emb(prefix_x)
+        #prefix_x = torch.arange(0, prefix_y.shape[-1], dtype=torch.long, device=device).unsqueeze(0)
+        prefix_x_emb = self.prefix_x_emb(prefix_x) 
+        prefix_y_emb = self.prefix_y_emb(prefix_y)#.unsqueeze(1)
+        #prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+        prefix = self.prefix_drop(prefix_y_emb)
 
         # Concat prefix
         x = torch.concat((prefix, x), dim=1)
@@ -314,8 +321,8 @@ class GPT(nn.Module):
 
                 if 'lora' in fpn:
                     no_decay.add(fpn)
-                if 'prefix' in fpn:
-                    no_decay.add(fpn)
+                #if 'prefix' in fpn:
+                #    no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they
         # will appear in the no_decay and decay sets respectively after the above.

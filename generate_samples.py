@@ -72,8 +72,8 @@ def generate_samples(config):
 
     import matplotlib.pyplot as plt
     fig = plt.figure()
-    plt.plot(prefix_x_tensors[0].cpu().numpy(), prefix_y_tensors[0].cpu().numpy())
-    plt.plot(prefix_x_tensors[1].cpu().numpy(), prefix_y_tensors[1].cpu().numpy())
+    for i in range(n_data):
+        plt.plot(prefix_x_tensors[i].cpu().numpy(), prefix_y_tensors[i].cpu().numpy())
     fig.savefig('test.png')
     plt.close(fig)
 
@@ -88,7 +88,8 @@ def generate_samples(config):
             for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False):
                 gens = []
                 for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False):
-                    start_index = torch.tensor(tokenizer.encode(["data_"])).to(device='cuda').unsqueeze(0)
+                    input_string = ["data_"]
+                    start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
                     out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
                     gens.append(output)

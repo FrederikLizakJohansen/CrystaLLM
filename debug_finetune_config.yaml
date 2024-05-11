@@ -1,4 +1,4 @@
-out_dir: 'crystallm_v1_small_debug_finetune'
+out_dir: 'crystallm_v1_small_debug_finetune_3K'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 10
 eval_iters_val: 10
@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'dataset/CHILI-100K_small/'
+dataset: 'dataset/CHILI-3K'
 batch_size: 32
 block_size: 1024
 

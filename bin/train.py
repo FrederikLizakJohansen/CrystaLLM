@@ -222,7 +222,7 @@ if __name__ == "__main__":
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
                       bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
-                      prefix_y_vocab_size = prefix_y_vocab_size)
+                      prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:

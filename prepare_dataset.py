@@ -26,13 +26,13 @@ warnings.filterwarnings("ignore")
 
 @dataclass
 class DefaultDatasetConfig:
-    scattering_type: str = 'xrd'
+    scattering_type: str = 'pdf'
     
     debye_kwargs: Dict[str, Any] = field(default_factory=lambda: {
-        'qmin': 1.0,
+        'qmin': 0.0,
         'qmax': 30.0,
-        'qstep': 0.05,
-        'qdamp': 0.04,
+        'qstep': 0.01,
+        'qdamp': 0.05,
         'rmin': 0.0,
         'rmax': 20.0,
         'rstep': 0.01,
@@ -40,27 +40,28 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cifs_fname: str = 'CHILI-100K/CHILI-100K_prep.pkl.gz'
+    #cifs_fname: str = 'CHILI-100K/CHILI-100K_cifs_prep.pkl.gz'
+    cifs_fname: str = 'CHILI-3K/CHILI-3K_prep.pkl.gz'
 
     val_size: float = 0.2
     test_size: float = 0.1
     
-    cif_size: int = 6000
+    cif_size: int = 400
 
-    prefix_size: int = 100
-    prefix_x_vocab_size: int = 50
-    prefix_y_vocab_size: int = 50
+    prefix_size: int = 1000
+    prefix_x_vocab_size: int = 100
+    prefix_y_vocab_size: int = 100
     
-    debug_max: int = 120
-    check_block_size: bool = False
+    debug_max: int = None
+    check_block_size: bool = True
     workers: int = 3
 
     device: str = 'cuda'
 
     output: str = 'dataset'
-    dataset_name: str = 'CHILI-100K_small'
+    dataset_name: str = 'CHILI-3K'
 
-def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
+def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
     
     # Make calculator
     calc = DebyeCalculator(**config.debye_kwargs)
@@ -69,7 +70,8 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     if scattering_type == "pdf":
         x, y = calc.gr(ase_obj, radii=calc.rmax/2, keep_on_device=True)
         x = x.cpu().numpy()
-        y = MMIS(y).cpu().numpy()
+        #y = MMIS(y).cpu().numpy()
+        y = y.cpu().numpy()
         xmin, xmax = calc.rmin, calc.rmax
     elif scattering_type == "xrd":
         x, y = calc.iq(ase_obj, radii=calc.rmax/2, keep_on_device=True)
@@ -127,7 +129,7 @@ def prepare_split(
 
         print('Average size:', np.mean(sizes), '+-', np.std(sizes))
         print('Min/Max size:', np.min(sizes), '/', np.max(sizes))
-        assert np.max(sizes) <= config.cif_sequence_len
+        assert np.max(sizes) <= config.cif_size
 
     # Make folder
     config.dataset_path = os.path.join(config.output, config.dataset_name)
