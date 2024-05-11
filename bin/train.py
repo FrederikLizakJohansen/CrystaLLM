@@ -42,8 +42,10 @@ class TrainDefaults:
     block_size: int = 2048  # context of up to `block_size` previous characters
     accumulative_pbar: bool = True
 
-    cond_vocab_size: int = 512 # Size of the conditioning vector
-    cond_seq_len: int = 100 # TODO Will be faulty 
+    # Prefix
+    prefix_x_vocab_size: int = 20
+    prefix_y_vocab_size: int = 20
+    prefix_size: int = 100
 
     # model
     n_layer: int = 12
@@ -120,31 +122,31 @@ if __name__ == "__main__":
     if os.path.exists(meta_path):
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
+
+        # Load meta data
+        cif_size = meta['cif_size']
         cif_vocab_size = meta['cif_vocab_size']
-        cond_vocab_size = meta['cond_vocab_size']
-        cif_seq_len = meta['cif_seq_len']
-        cond_seq_len = meta['cond_seq_len']
-        C.cond_seq_len = cond_seq_len
+
+        prefix_size = meta['prefix_size']
+        prefix_x_vocab_size = meta['prefix_x_vocab_size']
+        prefix_y_vocab_size = meta['prefix_y_vocab_size']
+
         scattering_type = meta['scattering_type']
-        xy_shape_train = meta['xy_shape_train']
-        xy_shape_val = meta['xy_shape_val']
-        xy_shape_test = meta['xy_shape_test']
 
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found cond_vocab_size = {cond_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found cif_seq_len = {cif_seq_len} (inside {meta_path})", flush=True)
+        print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found cif_size = {cif_size} (inside {meta_path})", flush=True)
+        print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
-        print(f"Found xy_shape_train = {xy_shape_train} (inside {meta_path})", flush=True)
-        print(f"Found xy_shape_val = {xy_shape_val} (inside {meta_path})", flush=True)
-        print(f"Found xy_shape_test = {xy_shape_test} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
-    #cond_train_data = np.memmap(os.path.join(C.dataset, "cond_train.bin"), dtype=np.uint16, mode="r")
-    prefix_train_data = np.memmap(os.path.join(C.dataset, "prefix_train.dat"), dtype='float32', mode='r', shape=xy_shape_train)
+    prefix_x_train_data = np.memmap(os.path.join(C.dataset, "prefix_x_train.bin"), dtype=np.uint16, mode="r")
+    prefix_y_train_data = np.memmap(os.path.join(C.dataset, "prefix_y_train.bin"), dtype=np.uint16, mode="r")
     
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    #cond_val_data = np.memmap(os.path.join(C.dataset, "cond_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    prefix_val_data = np.memmap(os.path.join(C.dataset, "prefix_val.dat"), dtype='float32', mode='r', shape=xy_shape_val) if C.validate else None
+    prefix_x_val_data = np.memmap(os.path.join(C.dataset, "prefix_x_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    prefix_y_val_data = np.memmap(os.path.join(C.dataset, "prefix_y_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -179,23 +181,23 @@ if __name__ == "__main__":
         data = train_data if split == "train" else val_data
 
         # Prefix
-        prefix_data = prefix_train_data if split == "train" else prefix_val_data
+        prefix_x_data = prefix_x_train_data if split == "train" else prefix_x_val_data
+        prefix_y_data = prefix_y_train_data if split == "train" else prefix_y_val_data
 
         # Choose training samples
-        num_data = len(data) // cif_seq_len
+        num_data = len(data) // cif_size
         sample_idx = torch.randint(num_data, (batch_size,))
 
         # Choose blocsk
-        block_idx = torch.randint(cif_seq_len, (batch_size,))
+        block_idx = torch.randint(cif_size, (batch_size,))
 
         # Get x and y
-        x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
-        y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_seq_len)) for i in range(batch_size)])
+        x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
+        y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
 
         # Get prefix
-        #prefix = torch.stack([torch.from_numpy((cond_data[i*cond_seq_len:(i+1)*cond_seq_len]).astype(np.int64)) for i in sample_idx])
-        prefix_x = torch.stack([torch.from_numpy((prefix_data[i][0])) for i in sample_idx])
-        prefix_y = torch.stack([torch.from_numpy((prefix_data[i][1])) for i in sample_idx])
+        prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
+        prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
 
         # Send to device
         if C.device == "cuda":
@@ -203,13 +205,11 @@ if __name__ == "__main__":
             y = y.pin_memory().to(C.device, non_blocking=True)
             prefix_x = prefix_x.pin_memory().to(C.device, non_blocking=True)
             prefix_y = prefix_y.pin_memory().to(C.device, non_blocking=True)
-            #cond = cond.pin_memory().to(C.device, non_blocking=True)
         else:
             x = x.to(C.device)
             y = y.to(C.device)
             prefix_x = prefix_x.to(C.device)
             prefix_y = prefix_y.to(C.device)
-            #cond = cond.to(C.device)
         
         if not return_sample_idx:
             return x, y, prefix_x, prefix_y
@@ -221,7 +221,8 @@ if __name__ == "__main__":
 
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
-                      bias=C.bias, vocab_size=None, dropout=C.dropout, cond_seq_len=cond_seq_len)
+                      bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
+                      prefix_y_vocab_size = prefix_y_vocab_size)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:

@@ -33,8 +33,8 @@ class LoRALayer(nn.Module):
 class GPTConfig:
     block_size: int = 1024
     vocab_size: int = 371
-    cond_seq_len: int = 100 # TODO
-    #cond_vocab_size: int = 100
+    prefix_x_vocab_size: int = 10
+    prefix_y_vocab_size: int = 10
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -80,7 +80,7 @@ class CausalSelfAttention(nn.Module):
                                         .view(1, 1, config.block_size, config.block_size))
 
         # LoRA
-        self.lora_attn = LoRALayer(config.n_embd, 3 * config.n_embd, config.lora_rank)
+        self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, config.lora_rank)
         self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -99,13 +99,12 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
-        lora_q, lora_k, lora_v = self.lora_attn(x).split(self.n_embd, dim=2)
+        lora_k, lora_v = self.lora_attn(x).split(self.n_embd, dim=2)
+
         lora_k = lora_k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        lora_q = lora_q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         lora_v = lora_v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
         k = k + lora_k
-        q = q + lora_q
         v = v + lora_v
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
@@ -189,8 +188,8 @@ class GPT(nn.Module):
         # Or I simple inject the values as continues input and pass them all through a
         # linear layer.
 
-        self.prefix_x_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
-        self.prefix_y_emb = nn.Embedding(config.cond_vocab_size, config.n_embd)
+        self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
+        self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
         self.prefix_drop = nn.Dropout(config.dropout)
 
         self.transformer = nn.ModuleDict(dict(
@@ -315,8 +314,8 @@ class GPT(nn.Module):
 
                 if 'lora' in fpn:
                     no_decay.add(fpn)
-                #if 'prefix' in fpn:
-                #    no_decay.add(fpn)
+                if 'prefix' in fpn:
+                    no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they
         # will appear in the no_decay and decay sets respectively after the above.
@@ -392,9 +391,9 @@ class GPT(nn.Module):
             # a sequence of two newlines indicates the end of a CIF file
             if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
                 break
-            if prev_id is not None and idx_next.item() == unk_id:
-                generation_pbar.update(max_new_tokens - i)
-                break
+            #if prev_id is not None and idx_next.item() == unk_id:
+            #    generation_pbar.update(max_new_tokens - i)
+            #    break
             prev_id = idx_next.item()
             generation_pbar.update(1)
         generation_pbar.close()

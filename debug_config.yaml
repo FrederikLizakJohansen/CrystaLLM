@@ -4,8 +4,9 @@ eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
 init_from: 'scratch'
-device: 'cpu'
-compile: False
+device: 'cuda'
+compile: True
+gradient_accumulation_steps: 40  # used to simulate larger batch sizes
 
 dtype: 'float16'
 
@@ -16,13 +17,13 @@ always_save_checkpoint: True
 validate: True
 
 dataset: 'dataset/CHILI-100K_small/'
-batch_size: 32
-block_size: 1024
+batch_size: 16
+block_size: 512
 
-n_layer: 2
-n_head: 2
-n_embd: 32
-dropout: 0.1
+n_layer: 4
+n_head: 4
+n_embd: 64
+dropout: 0.0
 
 learning_rate: 1e-3
 max_iters: 200000

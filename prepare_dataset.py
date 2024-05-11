@@ -40,13 +40,16 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cifs_fname: str = 'CHILI-100K_prep.pkl.gz'
+    cifs_fname: str = 'CHILI-100K/CHILI-100K_prep.pkl.gz'
+
     val_size: float = 0.2
     test_size: float = 0.1
     
-    cond_sequence_len: int = 100
-    cond_vocab_size: int = 10
-    cif_sequence_len: int = 6000
+    cif_size: int = 6000
+
+    prefix_size: int = 100
+    prefix_x_vocab_size: int = 50
+    prefix_y_vocab_size: int = 50
     
     debug_max: int = 120
     check_block_size: bool = False
@@ -92,8 +95,10 @@ def prepare_split(
 ):
     # Init Tokenizer
     tokenizer = CIFTokenizer(
-        cond_vocab_size = config.cond_vocab_size,
-        cif_sequence_len = config.cif_sequence_len,
+        prefix_x_vocab_size = config.prefix_x_vocab_size,
+        prefix_y_vocab_size = config.prefix_y_vocab_size,
+        prefix_size = config.prefix_size,
+        cif_size = config.cif_size,
         pad_sequences = True,
     )
 
@@ -134,19 +139,17 @@ def prepare_split(
     # Save meta data
     print(f"Saving meta data")
     meta = {
-        "cif_seq_len": tokenizer.cif_sequence_len,
+        "cif_size": tokenizer.cif_size,
         "cif_vocab_size": len(tokenizer.token_to_id),
 
-        "cond_seq_len": config.cond_sequence_len,
-        "xy_shape_train": (len(cifs_train), 2, config.cond_sequence_len), # Will not work if anything fails
-        "xy_shape_val": (len(cifs_val), 2, config.cond_sequence_len), # Will not work if anything fails
-        "xy_shape_test": (len(cifs_test), 2, config.cond_sequence_len), # Will not work if anything fails
-
-        "cond_vocab_size": tokenizer.cond_vocab_size,
+        "prefix_size": config.prefix_size,
+        "prefix_x_vocab_size": config.prefix_x_vocab_size,
+        "prefix_y_vocab_size": config.prefix_y_vocab_size,
 
         "id_to_token": tokenizer.id_to_token,
         "token_to_id": tokenizer.token_to_id,
-        "id_to_scattering": tokenizer.id_to_scattering,
+        "id_to_prefix_x": tokenizer._id_to_prefix_x,
+        "id_to_prefix_y": tokenizer._id_to_prefix_y,
 
         "scattering_type": config.scattering_type,
     }
@@ -164,26 +167,27 @@ def process_cif(
 
     # Tokenizer
     tokenizer = CIFTokenizer(
-        cond_vocab_size = config.cond_vocab_size,
-        cif_sequence_len = config.cif_sequence_len,
+        prefix_x_vocab_size = config.prefix_x_vocab_size,
+        prefix_y_vocab_size = config.prefix_y_vocab_size,
+        prefix_size = config.prefix_size,
+        cif_size = config.cif_size,
         pad_sequences = True,
     )
     
     try:
         tokens = tokenizer.tokenize_cif(cif)
         ids = tokenizer.encode(tokens)
-        prefix  = interpolated_scattering(
+        prefix_x, prefix_y = interpolated_scattering(
             ase_obj,
             config.scattering_type, 
-            config.cond_sequence_len,
+            config.prefix_size,
         )
-        #y_ids = tokenizer.encode_scattering(y)
-        #x_ids = tokenizer.encode_
-        #return ids, scat_ids, fname
-        return ids, prefix, fname
+        y_ids = tokenizer.encode_prefix_y(prefix_y)
+        x_ids = tokenizer.encode_prefix_x(prefix_x)
+        return ids, x_ids, y_ids, fname
     except Exception as e:
         raise e
-        return None, None, None
+        return None, None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
     args = [(config, cif) for cif in cifs]
@@ -191,20 +195,22 @@ def save_dataset_parallel(config, cifs, bin_prefix):
         results = list(tqdm(pool.imap(process_cif, args), total=len(args)))
 
     cif_ids = [res[0] for res in results]
-    xy = [res[1] for res in results]
-    xy = np.array(xy, dtype=np.float32)
+    prefix_x_ids = [res[1] for res in results]
+    prefix_y_ids = [res[2] for res in results]
     fnames = [res[2] for res in results]
 
     cif_ids = np.array(cif_ids, dtype=np.uint16)
-    #cond_ids = np.array(cond_ids, dtype = np.uint16)
+    prefix_x_ids = np.array(prefix_x_ids, dtype=np.uint16)
+    prefix_y_ids = np.array(prefix_y_ids, dtype=np.uint16)
         
     # Save binary files
     print(f"Saving binary files for tag: {bin_prefix}")
     cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
-    #cond_ids.tofile(os.path.join(config.dataset_path, 'cond_' + bin_prefix + '.bin'))
-    mmapped_data = np.memmap(os.path.join(config.dataset_path, 'prefix_' + bin_prefix + '.dat'), dtype='float32', mode='w+', shape=xy.shape)
-    mmapped_data[:] = xy[:]
-    del mmapped_data
+    prefix_x_ids.tofile(os.path.join(config.dataset_path, 'prefix_x_' + bin_prefix + '.bin'))
+    prefix_y_ids.tofile(os.path.join(config.dataset_path, 'prefix_y_' + bin_prefix + '.bin'))
+    #mmapped_data = np.memmap(os.path.join(config.dataset_path, 'prefix_' + bin_prefix + '.dat'), dtype='float32', mode='w+', shape=xy.shape)
+    #mmapped_data[:] = xy[:]
+    #del mmapped_data
         
     # Save cif split
     with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:

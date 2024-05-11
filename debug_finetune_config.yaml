@@ -6,6 +6,7 @@ log_interval: 1  # how often to print to the console (1 = every iteration)
 init_from: 'finetune'
 device: 'cuda'
 compile: True
+gradient_accumulation_steps: 1
 
 dtype: 'float16'
 

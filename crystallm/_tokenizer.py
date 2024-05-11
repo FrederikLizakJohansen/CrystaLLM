@@ -56,15 +56,17 @@ EXTENDED_KEYWORDS = [
 
 UNK_TOKEN = "<unk>"
 
-PAD_TOKEN = "<pad>"
-
 
 class CIFTokenizer:
     def __init__(
         self,
-        cond_vocab_size: int = 100,
-        cif_sequence_len: int = 5000,
+        prefix_x_vocab_size: int = 10,
+        prefix_y_vocab_size: int = 10,
+        prefix_size: int = 100,
+        cif_size: int = 6000,
         pad_sequences: bool = False,
+        xmin: float = 1.0,
+        xmax: float = 30.0,
     ):
         self._tokens = list(self.atoms())
         self._tokens.extend(self.digits())
@@ -82,7 +84,6 @@ class CIFTokenizer:
 
         self._tokens_with_unk = list(self._tokens)
         self._tokens_with_unk.append(UNK_TOKEN)
-        #self._tokens_with_unk.append(PAD_TOKEN)
 
         # a mapping from characters to integers
         self._token_to_id = {ch: i for i, ch in enumerate(self._tokens_with_unk)}
@@ -92,15 +93,23 @@ class CIFTokenizer:
         for sg in space_groups_sg:
             self._id_to_token[self.token_to_id[sg]] = sg.replace("_sg", "")
 
-        # PAdding
-        self.cif_sequence_len = cif_sequence_len
+        # Padding
+        self.cif_size = cif_size
         self.pad_sequences = pad_sequences
+
+        # Prefix
+        self.prefix_x_vocab_size = prefix_x_vocab_size
+        self.prefix_y_vocab_size = prefix_y_vocab_size
         
-        # Cond
-        self.cond_vocab_size = cond_vocab_size
-        self.scattering_bin_edges = np.linspace(0,1, cond_vocab_size-1)
-        self._scattering_to_id = lambda y: np.digitize(y, self.scattering_bin_edges)
-        self._id_to_scattering = {i: n for i, n in enumerate(self.scattering_bin_edges)}
+        # Prefix x
+        self.prefix_x_bin_edges = np.linspace(xmin, xmax, prefix_x_vocab_size-1)
+        self._prefix_x_to_id = lambda y: np.digitize(y, self.prefix_x_bin_edges)
+        self._id_to_prefix_x = {i: n for i, n in enumerate(self.prefix_x_bin_edges)}
+        
+        # Prefix y
+        self.prefix_y_bin_edges = np.linspace(0, 1, prefix_y_vocab_size-1)
+        self._prefix_y_to_id = lambda y: np.digitize(y, self.prefix_y_bin_edges)
+        self._id_to_prefix_y = {i: n for i, n in enumerate(self.prefix_y_bin_edges)}
 
     @staticmethod
     def atoms():
@@ -133,12 +142,12 @@ class CIFTokenizer:
         return dict(self._id_to_token)
     
     @property
-    def scattering_to_id(self):
-        return self._scattering_to_id
+    def prefix_x_to_id(self):
+        return self._prefix_x_to_id
 
     @property
-    def id_to_scattering(self):
-        return dict(self._id_to_scattering)
+    def prefix_y_to_id(self):
+        return self._prefix_y_to_id
 
     def encode(self, tokens):
         # encoder: take a list of tokens, output a list of integers
@@ -148,13 +157,21 @@ class CIFTokenizer:
         # decoder: take a list of integers (i.e. encoded tokens), output a string
         return ''.join([self._id_to_token[i] for i in ids])
     
-    def encode_scattering(self, y):
-        # Encoder for scattering; takes a continues signal and discretize it into ids on interval -1 to 1
-        return list(self._scattering_to_id(y))
+    def encode_prefix_x(self, x):
+        # Encoder for prefix x; takes a continues signal and discretize it into ids
+        return list(self._prefix_x_to_id(x))
     
-    def decode_scattering(self, ids):
-        # Decoder for scattering; takes a list of integers, i.e. encoded continues signal, outputs the signal between -1 and 1
-        return [self._id_to_scattering[i] for i in ids]
+    def encode_prefix_y(self, x):
+        # Encoder for prefix y; takes a continues signal and discretize it into ids
+        return list(self._prefix_y_to_id(x))
+    
+    def decode_prefix_x(self, ids):
+        # Decoder for prefix x; takes a list of integers, i.e. encoded continues signal
+        return [self._id_to_prefix_x[i] for i in ids]
+    
+    def decode_prefix_y(self, ids):
+        # Decoder for prefix y; takes a list of integers, i.e. encoded continues signal
+        return [self._id_to_prefix_y[i] for i in ids]
 
     def tokenize_cif(self, cif_string, single_spaces=True):
         # Preprocessing step to replace '_symmetry_space_group_name_H-M Pm'
@@ -179,6 +196,6 @@ class CIFTokenizer:
         
         # Pad to max size
         if self.pad_sequences:
-            tokens.extend([UNK_TOKEN] * (self.cif_sequence_len - len(tokens)))
+            tokens.extend(["\n"] * (self.cif_size - len(tokens)))
 
         return tokens

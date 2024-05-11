@@ -47,40 +47,49 @@ def generate_samples(config):
     meta_path = os.path.join(config.dataset_dir, "meta.pkl")
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
-    cond_seq_len = meta['cond_seq_len']
+    prefix_size = meta['prefix_size']
     
     # Init tokenizer
     tokenizer = CIFTokenizer()
     encode = tokenizer.encode
     decode = tokenizer.decode
 
-    # Get conditionings
-    cond_ids = np.memmap(os.path.join(config.dataset_dir, f"cond_{config.split}.bin"), dtype=np.uint16, mode="r")
+    # Get Prefix
+    prefix_x_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_x_{config.split}.bin"), dtype=np.uint16, mode="r")
+    prefix_y_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_y_{config.split}.bin"), dtype=np.uint16, mode="r")
 
     # Get cifs fnames
     with open(os.path.join(config.dataset_dir, f"fnames_{config.split}.txt"), 'r') as f:
         cif_paths = [line.strip() for line in f.readlines()]
 
-    print(cif_paths)
-
     # Order and stack conditioning data
-    n_data= len(cond_ids) // cond_seq_len
+    n_data = len(prefix_x_ids) // prefix_size
     if config.n_data > 0:
         n_data = min(n_data, config.n_data)
-    cond_tensors = torch.stack([torch.from_numpy((cond_ids[i*cond_seq_len:(i+1)*cond_seq_len]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+
+    prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+    prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    plt.plot(prefix_x_tensors[0].cpu().numpy(), prefix_y_tensors[0].cpu().numpy())
+    plt.plot(prefix_x_tensors[1].cpu().numpy(), prefix_y_tensors[1].cpu().numpy())
+    fig.savefig('test.png')
+    plt.close(fig)
+
     cif_paths = cif_paths[:n_data]
-    assert len(cif_paths) == len(cond_tensors)
+    #assert len(cif_paths) == len(cond_tensors)
     
     # Generate structures and cif strings
     with torch.no_grad():
         with ctx:
             model.eval()
             generated_cifs = []
-            for i, (fname, cond) in tqdm(enumerate(zip(cif_paths, cond_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False):
+            for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False):
                 gens = []
                 for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False):
                     start_index = torch.tensor(tokenizer.encode(["data_"])).to(device='cuda').unsqueeze(0)
-                    out = model.generate(start_index, cond.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                    out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
                     gens.append(output)
                     
