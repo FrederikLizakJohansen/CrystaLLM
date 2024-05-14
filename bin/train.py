@@ -43,9 +43,14 @@ class TrainDefaults:
     accumulative_pbar: bool = True
 
     # Prefix
+    use_prefix: bool = True
     prefix_x_vocab_size: int = 20
     prefix_y_vocab_size: int = 20
     prefix_size: int = 100
+
+    # LoRA
+    use_lora: bool = True
+    lora_rank: int = 2
 
     # model
     n_layer: int = 12
@@ -99,6 +104,7 @@ def read_start_indices(
 
 if __name__ == "__main__":
     C = parse_config(TrainDefaults)
+    print(C.use_lora)
 
     print("Using configuration:", flush=True)
     print(OmegaConf.to_yaml(C))
@@ -222,7 +228,8 @@ if __name__ == "__main__":
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
                       bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
-                      prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size)
+                      prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size, use_lora=C.use_lora, use_prefix=C.use_prefix,
+                      lora_rank=C.lora_rank)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:
@@ -334,6 +341,9 @@ if __name__ == "__main__":
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     running_mfu = -1.0
+    train_losses = []
+    val_losses = []
+    epoch_losses = []
     while True:
 
         # determine and set the learning rate for this iteration
@@ -345,6 +355,9 @@ if __name__ == "__main__":
         if iter_num % C.eval_interval == 0:
             if C.validate:
                 losses = estimate_loss()
+                train_losses.append(losses["train"])
+                val_losses.append(losses["val"])
+                epoch_losses.append(iter_num)
                 print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 best_val_loss = losses["val"] if C.validate else 0.
@@ -355,6 +368,9 @@ if __name__ == "__main__":
                         "model_args": model_args,
                         "iter_num": iter_num,
                         "best_val_loss": best_val_loss,
+                        "train_losses": train_losses,
+                        "val_losses": val_losses,
+                        "epoch_losses": epoch_losses,
                         "config": dict(C),
                     }
                     print(f"saving checkpoint to {C.out_dir}...", flush=True)

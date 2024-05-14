@@ -42,6 +42,8 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True
     lora_rank: int = 4
+    use_lora: bool = True
+    use_prefix: bool = True
 
 
 class LayerNorm(nn.Module):
@@ -66,6 +68,8 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+        self.config = config
+
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.attn_dropout = nn.Dropout(config.dropout)
@@ -81,8 +85,9 @@ class CausalSelfAttention(nn.Module):
                                         .view(1, 1, config.block_size, config.block_size))
 
         # LoRA
-        self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, config.lora_rank)
-        self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
+        if config.use_lora:
+            self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, rank=config.lora_rank)
+            #self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -100,13 +105,14 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
-        lora_k, lora_v = self.lora_attn(x).split(self.n_embd, dim=2)
+        if self.config.use_lora:
+            lora_k, lora_v = self.lora_attn(x).split(self.n_embd, dim=2)
 
-        lora_k = lora_k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        lora_v = lora_v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+            lora_k = lora_k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+            lora_v = lora_v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
-        k = k + lora_k
-        v = v + lora_v
+            k = k + lora_k
+            v = v + lora_v
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
@@ -120,7 +126,10 @@ class CausalSelfAttention(nn.Module):
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
-        y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
+        #if not self.config.use_lora:
+        y = self.resid_dropout(self.c_proj(y))
+        #else:
+        #    y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
         return y
 
 
@@ -140,17 +149,26 @@ class MLP(nn.Module):
 
     def __init__(self, config: GPTConfig):
         super().__init__()
+        self.config = config
+
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
-        self.lora_fc = LoRALayer(config.n_embd, 4 * config.n_embd, rank=config.lora_rank)
-        self.lora_proj = LoRALayer(4 * config.n_embd, config.n_embd, rank=config.lora_rank)
+        #if config.use_lora:
+        #    self.lora_fc = LoRALayer(config.n_embd, 4 * config.n_embd, rank=config.lora_rank)
+        #    self.lora_proj = LoRALayer(4 * config.n_embd, config.n_embd, rank=config.lora_rank)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.c_fc(x) + self.lora_fc(x)
+        #if not self.config.use_lora:
+        x = self.c_fc(x)
+        #else:
+        #    x = self.c_fc(x) + self.lora_fc(x)
         x = gelu(x)
-        x = self.c_proj(x) + self.lora_proj(x)
+        #if not self.config.use_lora:
+        x = self.c_proj(x)
+        #else:
+        #    x = self.c_proj(x) + self.lora_proj(x)
         x = self.dropout(x)
         return x
 
@@ -185,15 +203,10 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
-        # TODO Either I need to predefine the vocab for the x and y
-        # Or I simple inject the values as continues input and pass them all through a
-        # linear layer.
-
-        self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
-        self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
-
-        #self.prefix_y_linear = nn.Linear(config.prefix_size, config.n_embd)
-        self.prefix_drop = nn.Dropout(config.dropout)
+        if config.use_prefix:
+            self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
+            self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
+            self.prefix_drop = nn.Dropout(config.dropout)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
@@ -249,25 +262,21 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
-        #x = self.transformer.drop(tok_emb + pos_emb)
+        x = self.transformer.drop(tok_emb + pos_emb)
         
         # Forward the prefix
-        prefix_x_emb = self.prefix_x_emb(prefix_x) 
-        prefix_y_emb = self.prefix_y_emb(prefix_y)
-        #prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
-        #print(prefix_x_emb.shape)
-        #print()
-
-        x = self.transformer.drop(prefix_x_emb + prefix_y_emb + tok_emb + pos_emb)
-
-        # Concat prefix
-        #x = torch.concat((prefix, x), dim=1)
+        if self.config.use_prefix:
+            prefix_x_emb = self.prefix_x_emb(prefix_x) 
+            prefix_y_emb = self.prefix_y_emb(prefix_y)
+            prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+            x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
             x = block(x)
 
         x = self.transformer.ln_f(x)
-        #x = x[:,prefix.shape[1]:,:]
+        if self.config.use_prefix:
+            x = x[:,prefix.shape[1]:,:]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -321,8 +330,6 @@ class GPT(nn.Module):
 
                 if 'lora' in fpn:
                     decay.add(fpn)
-                #if 'prefix' in fpn:
-                #    no_decay.add(fpn)
 
         # subtle: "transformer.wte.weight" and "lm_head.weight" are tied, so they
         # will appear in the no_decay and decay sets respectively after the above.
@@ -398,9 +405,7 @@ class GPT(nn.Module):
             # a sequence of two newlines indicates the end of a CIF file
             if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
                 break
-            #if prev_id is not None and idx_next.item() == unk_id:
-            #    generation_pbar.update(max_new_tokens - i)
-            #    break
+
             prev_id = idx_next.item()
             generation_pbar.update(1)
         generation_pbar.close()
