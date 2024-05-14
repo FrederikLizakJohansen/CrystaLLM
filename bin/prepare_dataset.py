@@ -1,3 +1,6 @@
+import sys
+sys.path.append(".")
+
 import argparse
 import io
 import os
@@ -6,7 +9,6 @@ import gzip
 import math
 import random
 from glob import glob
-from crystallm._tokenizer import CIFTokenizer
 from dataclasses import dataclass, field
 from typing import Dict, Any
 import numpy as np
@@ -20,6 +22,10 @@ import matplotlib.pyplot as plt
 from ase.io import read
 
 from multiprocessing import Pool
+
+from crystallm import (
+    CIFTokenizer
+)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -40,7 +46,7 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cif_folder: str = ""
+    cif_pkl: str = ""
 
     val_size: float = 0.2
     test_size: float = 0.1
@@ -61,9 +67,11 @@ class DefaultDatasetConfig:
     output: str = 'datasets'
     dataset_name: str = ""
 
-    prefix_method = "interpolate"
+    prefix_method: str = "interpolate"
 
-def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
+    pl: bool = False
+
+def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     
     # Make calculator
     calc = DebyeCalculator(**config.debye_kwargs)
@@ -88,6 +96,8 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
     x = np.linspace(xmin, xmax, num_points)
 
     if pl:
+        if not os.path.exists('temp_img'):
+            os.mkdir('temp_img')
         fig = plt.figure()
         plt.plot(x, f(x))
         fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
@@ -104,7 +114,7 @@ def prepare_split(
     config: DefaultDatasetConfig
 ):
     # Assertions
-    assert config.cif_folder != "", "cif_folder cannot be empty"
+    assert config.cif_pkl != "", "cif_pkl cannot be empty"
     assert config.dataset_name != "", "dataset_name cannot be empty"
 
     # Init Tokenizer
@@ -116,8 +126,8 @@ def prepare_split(
     )
 
     # Retrieve cifs and split
-    print(f"loading data from {config.cif_folder}...")
-    with gzip.open(config.cif_folder, "rb") as f:
+    print(f"loading data from {config.cif_pkl}...")
+    with gzip.open(config.cif_pkl, "rb") as f:
         cifs = pickle.load(f)
     cifs = cifs[:config.debug_max]
     random.shuffle(cifs)
@@ -262,9 +272,8 @@ def save_dataset_parallel(config, cifs, bin_prefix):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='Script for generating deCIFer dataset')
-    argparser.add_argument('--config', type=str)
     argparser.add_argument('--scattering_type', type=str)
-    argparser.add_argument('--cif_folder', type=str)
+    argparser.add_argument('--cif_pkl', type=str)
     argparser.add_argument('--val_size', type=float)
     argparser.add_argument('--test_size', type=float)
     argparser.add_argument('--cif_size', type=int)
@@ -278,17 +287,15 @@ if __name__ == "__main__":
     argparser.add_argument('--output', type=str)
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--prefix_method', type=str)
+    argparser.add_argument('--pl', type=bool)
 
     args = argparser.parse_args()
 
     # Parse yaml
-    config = DefaultDatasetConfig(**args)
-    #if args.config is not None:
-    #    with open(args.config, "r") as file:
-    #        config_dict = yaml.safe_load(file)
-    #        config = DefaultDatasetConfig(**config_dict)
-    #else:
-    #    config = DefaultDatasetConfig()
+    config = DefaultDatasetConfig()
+    for key, value in vars(args).items():
+        if value is not None:
+            setattr(config, key, value)
 
     cifs_train, cifs_val, cifs_test = prepare_split(config)
 

@@ -63,7 +63,7 @@ class CIFTokenizer:
         prefix_x_vocab_size: int = 10,
         prefix_y_vocab_size: int = 10,
         prefix_size: int = 100,
-        pad_token: str = "\n"
+        pad_token: str = "\n",
         xmin: float = 1.0,
         xmax: float = 30.0,
     ):
