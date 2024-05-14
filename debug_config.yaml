@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'dataset/CHILI-3K/'
+dataset: 'dataset/empty'
 batch_size: 16
 block_size: 512
 

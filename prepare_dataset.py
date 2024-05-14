@@ -40,26 +40,28 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    #cifs_fname: str = 'CHILI-100K/CHILI-100K_cifs_prep.pkl.gz'
-    cifs_fname: str = 'CHILI-3K/CHILI-3K_prep.pkl.gz'
+    cifs_fname: str = 'CHILI-100K/CHILI-100K_cifs_prep.pkl.gz'
+    #cifs_fname: str = 'CHILI-3K/CHILI-3K_prep.pkl.gz'
 
     val_size: float = 0.2
     test_size: float = 0.1
     
-    cif_size: int = 400
+    cif_size: int = 4200
 
-    prefix_size: int = 1000
+    prefix_size: int = 1
     prefix_x_vocab_size: int = 100
     prefix_y_vocab_size: int = 100
     
-    debug_max: int = None
-    check_block_size: bool = True
+    debug_max: int = 5000
+    check_block_size: bool = False
     workers: int = 3
 
     device: str = 'cuda'
 
     output: str = 'dataset'
-    dataset_name: str = 'CHILI-3K'
+    dataset_name: str = '100K-empty'
+
+    prefix_method = 'empty'
 
 def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
     
@@ -91,6 +93,12 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
         fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
     
     return x, f(x)
+
+def empty_scattering(ase_obj, sacttering_type, num_points):
+    if random.random() > 0.5:
+        return np.ones(num_points), np.ones(num_points)
+    else:
+        return np.zeros(num_points), np.zeros(num_points)
 
 def prepare_split(
     config: DefaultDatasetConfig
@@ -179,11 +187,37 @@ def process_cif(
     try:
         tokens = tokenizer.tokenize_cif(cif)
         ids = tokenizer.encode(tokens)
-        prefix_x, prefix_y = interpolated_scattering(
-            ase_obj,
-            config.scattering_type, 
-            config.prefix_size,
-        )
+        if config.prefix_method == 'interpolate':
+            prefix_x, prefix_y = interpolated_scattering(
+                ase_obj,
+                config.scattering_type, 
+                config.prefix_size,
+            )
+        elif config.prefix_method == 'empty':
+            prefix_x, prefix_y = empty_scattering(
+                ase_obj,
+                config.scattering_type,
+                config.prefix_size,
+            )
+            if prefix_x[0] == 1:
+                #id_to_replace = tokenizer.token_to_id["_cell_length_a"]
+                ids_new = []
+                ids_new.append(tokenizer.token_to_id["data_"])
+                ids_new.append(tokenizer.token_to_id["S"])
+                ids_new.append(tokenizer.token_to_id["He"])
+                ids_new.append(tokenizer.token_to_id["Na"])
+                ids_new.append(tokenizer.token_to_id["Ni"])
+                ids_new.append(tokenizer.token_to_id["Ga"])
+                ids_new.append(tokenizer.token_to_id["N"])
+                ids_new.append(tokenizer.token_to_id["S"])
+                ids_new.append(tokenizer.token_to_id["\n"]) 
+                ids_new.append(tokenizer.token_to_id["\n"]) 
+                ids[:len(ids_new)] = ids_new
+                id_to_put = tokenizer.token_to_id["\n"]
+                ids[len(ids_new):] = np.ones(len(ids)-len(ids_new), dtype=np.uint64) * id_to_put
+                #ids[1:] = np.ones(len(ids)-1, dtype=np.uint64) * id_to_put
+        else:
+            raise Exception('Unknown prefix method')
         y_ids = tokenizer.encode_prefix_y(prefix_y)
         x_ids = tokenizer.encode_prefix_x(prefix_x)
         return ids, x_ids, y_ids, fname

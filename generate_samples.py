@@ -87,12 +87,17 @@ def generate_samples(config):
             generated_cifs = []
             for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False):
                 gens = []
+                #if prefix_x[0] == 1:
+                #    continue
                 for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False):
+                    #input_string = ["data_", "Na", "Cl"]
                     input_string = ["data_"]
                     start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
+                    #prefix_y = torch.ones(1, device='cuda', dtype=torch.long) * 99
+                    #prefix_x = torch.ones(1, device='cuda', dtype=torch.long) * 99
                     out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
-                    gens.append(output)
+                    gens.append((output, prefix_y[0], prefix_x[0]))
                     
                 generated_cifs.append((fname.split(".")[0], gens))
 
@@ -103,9 +108,12 @@ def generate_samples(config):
         for id, gens in generated_cifs:
             print(id + "\n")
             for i, g in enumerate(gens):
+                g, pfy, pfx = g
                 print("Generation no.", i)
+                print(pfx.item(), pfy.item())
+                print()
                 print(g)
-                print("\n")
+                #print("\n")
             print("-"*10)
         return
     # Save tarball or print
@@ -124,7 +132,7 @@ class SampleDefaults:
     split: str = "train" # Data split
     out: str = "" # Path of gzipped tarball of generated cifs
     top_k: int = 5
-    max_new_tokens: int = 6000
+    max_new_tokens: int = 500
     device: str = 'cuda'
     temperature: float = 1.0
     seed: int = 42
@@ -150,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_repeats", type=int)
     parser.add_argument("--n_data", type=int)
     parser.add_argument("--prompt", type=str)
+    parser.add_argument("--debug_max", type=int)
     args = parser.parse_args()
 
     # Parse yaml

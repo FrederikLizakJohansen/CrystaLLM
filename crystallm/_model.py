@@ -41,7 +41,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True
-    lora_rank: int = 2
+    lora_rank: int = 4
 
 
 class LayerNorm(nn.Module):
@@ -192,7 +192,7 @@ class GPT(nn.Module):
         self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
         self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
 
-        self.prefix_y_linear = nn.Linear(config.prefix_size, config.n_embd)
+        #self.prefix_y_linear = nn.Linear(config.prefix_size, config.n_embd)
         self.prefix_drop = nn.Dropout(config.dropout)
 
         self.transformer = nn.ModuleDict(dict(
@@ -249,25 +249,25 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        #x = self.transformer.drop(tok_emb + pos_emb)
         
         # Forward the prefix
-        #print(prefix_x)
-        #prefix_x_emb  = self.prefix_x_emb(prefix_x)
-        #prefix_x = torch.arange(0, prefix_y.shape[-1], dtype=torch.long, device=device).unsqueeze(0)
         prefix_x_emb = self.prefix_x_emb(prefix_x) 
-        prefix_y_emb = self.prefix_y_emb(prefix_y)#.unsqueeze(1)
+        prefix_y_emb = self.prefix_y_emb(prefix_y)
         #prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
-        prefix = self.prefix_drop(prefix_y_emb)
+        #print(prefix_x_emb.shape)
+        #print()
+
+        x = self.transformer.drop(prefix_x_emb + prefix_y_emb + tok_emb + pos_emb)
 
         # Concat prefix
-        x = torch.concat((prefix, x), dim=1)
+        #x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
             x = block(x)
 
         x = self.transformer.ln_f(x)
-        x = x[:,prefix.shape[1]:,:]
+        #x = x[:,prefix.shape[1]:,:]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -320,7 +320,7 @@ class GPT(nn.Module):
                     no_decay.add(fpn)
 
                 if 'lora' in fpn:
-                    no_decay.add(fpn)
+                    decay.add(fpn)
                 #if 'prefix' in fpn:
                 #    no_decay.add(fpn)
 

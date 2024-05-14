@@ -102,7 +102,8 @@ class CIFTokenizer:
         self.prefix_y_vocab_size = prefix_y_vocab_size
         
         # Prefix x
-        self.prefix_x_bin_edges = np.linspace(xmin, xmax, prefix_x_vocab_size-1)
+        #self.prefix_x_bin_edges = np.linspace(xmin, xmax, prefix_x_vocab_size-1)
+        self.prefix_x_bin_edges = np.linspace(0, 1, prefix_x_vocab_size-1)
         self._prefix_x_to_id = lambda y: np.digitize(y, self.prefix_x_bin_edges)
         self._id_to_prefix_x = {i: n for i, n in enumerate(self.prefix_x_bin_edges)}
         
