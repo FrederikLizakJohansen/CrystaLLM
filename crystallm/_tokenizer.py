@@ -63,8 +63,7 @@ class CIFTokenizer:
         prefix_x_vocab_size: int = 10,
         prefix_y_vocab_size: int = 10,
         prefix_size: int = 100,
-        cif_size: int = 6000,
-        pad_sequences: bool = False,
+        pad_token: str = "\n"
         xmin: float = 1.0,
         xmax: float = 30.0,
     ):
@@ -94,8 +93,7 @@ class CIFTokenizer:
             self._id_to_token[self.token_to_id[sg]] = sg.replace("_sg", "")
 
         # Padding
-        self.cif_size = cif_size
-        self.pad_sequences = pad_sequences
+        self.pad_token = pad_token
 
         # Prefix
         self.prefix_x_vocab_size = prefix_x_vocab_size
@@ -194,9 +192,9 @@ class CIFTokenizer:
 
         # Replace unrecognized tokens with the unknown_token
         tokens = [token if token in self._tokens else UNK_TOKEN for token in tokens]
-        
-        # Pad to max size
-        if self.pad_sequences:
-            tokens.extend(["\n"] * (self.cif_size - len(tokens)))
 
+        return tokens
+
+    def pad_tokens(self, tokens, total_size):
+        tokens.extend([self.pad_token] * (total_size - len(tokens)))
         return tokens

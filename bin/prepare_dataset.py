@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 
 @dataclass
 class DefaultDatasetConfig:
-    scattering_type: str = 'pdf'
+    scattering_type: str = 'xrd'
     
     debye_kwargs: Dict[str, Any] = field(default_factory=lambda: {
         'qmin': 0.0,
@@ -40,28 +40,28 @@ class DefaultDatasetConfig:
         'radiation_type': "xray",
     })
 
-    cifs_fname: str = 'CHILI-100K/CHILI-100K_cifs_prep.pkl.gz'
-    #cifs_fname: str = 'CHILI-3K/CHILI-3K_prep.pkl.gz'
+    cif_folder: str = ""
 
     val_size: float = 0.2
     test_size: float = 0.1
     
-    cif_size: int = 4200
+    cif_size: int = None
+    pad_token: str = "\n"
 
-    prefix_size: int = 1
+    prefix_size: int = 100
     prefix_x_vocab_size: int = 100
     prefix_y_vocab_size: int = 100
     
-    debug_max: int = 5000
+    debug_max: int = None
     check_block_size: bool = False
     workers: int = 3
 
     device: str = 'cuda'
 
-    output: str = 'dataset'
-    dataset_name: str = '100K-empty'
+    output: str = 'datasets'
+    dataset_name: str = ""
 
-    prefix_method = 'empty'
+    prefix_method = "interpolate"
 
 def interpolated_scattering(ase_obj, scattering_type, num_points, pl=True):
     
@@ -103,18 +103,21 @@ def empty_scattering(ase_obj, sacttering_type, num_points):
 def prepare_split(
     config: DefaultDatasetConfig
 ):
+    # Assertions
+    assert config.cif_folder != "", "cif_folder cannot be empty"
+    assert config.dataset_name != "", "dataset_name cannot be empty"
+
     # Init Tokenizer
     tokenizer = CIFTokenizer(
         prefix_x_vocab_size = config.prefix_x_vocab_size,
         prefix_y_vocab_size = config.prefix_y_vocab_size,
         prefix_size = config.prefix_size,
-        cif_size = config.cif_size,
-        pad_sequences = True,
+        pad_token = config.pad_token,
     )
 
     # Retrieve cifs and split
-    print(f"loading data from {config.cifs_fname}...")
-    with gzip.open(config.cifs_fname, "rb") as f:
+    print(f"loading data from {config.cif_folder}...")
+    with gzip.open(config.cif_folder, "rb") as f:
         cifs = pickle.load(f)
     cifs = cifs[:config.debug_max]
     random.shuffle(cifs)
@@ -127,17 +130,21 @@ def prepare_split(
     assert len(cifs_train) + len(cifs_val) + len(cifs_test) == len(cifs), "Incorrect data split"
         
     # Checking that the block size matches and that there is no overflow
-    if config.check_block_size:
-        sizes = []
-        for cif_list in [cifs_train, cifs_val, cifs_test]:
-            for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
-                fname, cif_content = cif
-                tokens = tokenizer.tokenize_cif(cif_content)
-                sizes.append(len(tokens))
+    sizes = []
+    for cif_list in [cifs_train, cifs_val, cifs_test]:
+        for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
+            fname, cif_content = cif
+            tokens = tokenizer.tokenize_cif(cif_content)
+            sizes.append(len(tokens))
 
-        print('Average size:', np.mean(sizes), '+-', np.std(sizes))
-        print('Min/Max size:', np.min(sizes), '/', np.max(sizes))
-        assert np.max(sizes) <= config.cif_size
+    print('Average CIF size:', np.mean(sizes), '+-', np.std(sizes))
+    print('Min/Max CIF size:', np.min(sizes), '/', np.max(sizes))
+
+    if config.cif_size is None:
+        print('Setting padding accordinly')
+        config.cif_size = np.max(sizes)
+    else:
+        assert config.cif_size >= np.max(sizes)
 
     # Make folder
     config.dataset_path = os.path.join(config.output, config.dataset_name)
@@ -149,7 +156,8 @@ def prepare_split(
     # Save meta data
     print(f"Saving meta data")
     meta = {
-        "cif_size": tokenizer.cif_size,
+        "cif_size": config.cif_size,
+        "pad_token": config.pad_token,
         "cif_vocab_size": len(tokenizer.token_to_id),
 
         "prefix_size": config.prefix_size,
@@ -180,12 +188,11 @@ def process_cif(
         prefix_x_vocab_size = config.prefix_x_vocab_size,
         prefix_y_vocab_size = config.prefix_y_vocab_size,
         prefix_size = config.prefix_size,
-        cif_size = config.cif_size,
-        pad_sequences = True,
+        pad_token = config.pad_token,
     )
     
     try:
-        tokens = tokenizer.tokenize_cif(cif)
+        tokens = tokenizer.pad_tokens(tokenizer.tokenize_cif(cif), config.cif_size)
         ids = tokenizer.encode(tokens)
         if config.prefix_method == 'interpolate':
             prefix_x, prefix_y = interpolated_scattering(
@@ -230,10 +237,10 @@ def save_dataset_parallel(config, cifs, bin_prefix):
     with Pool(processes=config.workers) as pool:
         results = list(tqdm(pool.imap(process_cif, args), total=len(args)))
 
-    cif_ids = [res[0] for res in results]
-    prefix_x_ids = [res[1] for res in results]
-    prefix_y_ids = [res[2] for res in results]
-    fnames = [res[2] for res in results]
+    cif_ids = [res[0] for res in results if res[0] is not None]
+    prefix_x_ids = [res[1] for res in results if res[1] is not None]
+    prefix_y_ids = [res[2] for res in results if res[2] is not None]
+    fnames = [res[3] for res in results if res[3] is not None]
 
     cif_ids = np.array(cif_ids, dtype=np.uint16)
     prefix_x_ids = np.array(prefix_x_ids, dtype=np.uint16)
@@ -256,18 +263,37 @@ def save_dataset_parallel(config, cifs, bin_prefix):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='Script for generating deCIFer dataset')
     argparser.add_argument('--config', type=str)
+    argparser.add_argument('--scattering_type', type=str)
+    argparser.add_argument('--cif_folder', type=str)
+    argparser.add_argument('--val_size', type=float)
+    argparser.add_argument('--test_size', type=float)
+    argparser.add_argument('--cif_size', type=int)
+    argparser.add_argument('--prefix_size', type=int)
+    argparser.add_argument('--prefix_x_vocab_size', type=int)
+    argparser.add_argument('--prefix_y_vocab_size', type=int)
+    argparser.add_argument('--debug_max', type=int)
+    argparser.add_argument('--check_block_size', type=bool)
+    argparser.add_argument('--workers', type=int)
+    argparser.add_argument('--device', type=str)
+    argparser.add_argument('--output', type=str)
+    argparser.add_argument('--dataset_name', type=str)
+    argparser.add_argument('--prefix_method', type=str)
+
     args = argparser.parse_args()
 
     # Parse yaml
-    if args.config is not None:
-        with open(args.config, "r") as file:
-            config_dict = yaml.safe_load(file)
-            config = DefaultDatasetConfig(**config_dict)
-    else:
-        config = DefaultDatasetConfig()
+    config = DefaultDatasetConfig(**args)
+    #if args.config is not None:
+    #    with open(args.config, "r") as file:
+    #        config_dict = yaml.safe_load(file)
+    #        config = DefaultDatasetConfig(**config_dict)
+    #else:
+    #    config = DefaultDatasetConfig()
 
     cifs_train, cifs_val, cifs_test = prepare_split(config)
 
     save_dataset_parallel(config, cifs_train, 'train')
     save_dataset_parallel(config, cifs_val, 'val')
     save_dataset_parallel(config, cifs_test, 'test')
+
+
