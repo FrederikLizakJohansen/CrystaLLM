@@ -168,7 +168,7 @@ CHILI-100K/
 **/*.tar.gz
 **/*.pkl.gz
 **/*.csv
-**/*.sh
+**/*.cif
 logs/
 
 dataset/
