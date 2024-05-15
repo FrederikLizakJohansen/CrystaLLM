@@ -75,6 +75,10 @@ def generate_samples(config):
     # Check out path
     print_to_consol = True if config.out == "" else False
     
+    # Debug max
+    if config.debug_max is None:
+        config.debug_max = n_data
+    
     # Generate structures and cif strings
     with torch.no_grad():
         with ctx:
@@ -100,7 +104,7 @@ def generate_samples(config):
                 else:
                     generated_cifs.append((filename, gens))
 
-                if i >= config.debug_max:
+                if i > config.debug_max:
                     break
 
     if not print_to_consol:
@@ -127,7 +131,7 @@ class SampleDefaults:
     n_repeats: int = 1
     n_data: int = 0 # Default 0 is all data
     prompt: str = ""
-    debug_max: int = 2
+    debug_max: int = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -152,6 +156,7 @@ if __name__ == "__main__":
     for key, value in vars(args).items():
         if value is not None:
             setattr(config, key, value)
+
 
     # Assertions
     assert config.model_dir != "", "[model_dir] cannot be empty"
