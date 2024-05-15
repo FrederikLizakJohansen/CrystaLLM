@@ -10,12 +10,12 @@
 # Function to display help message
 usage() {
   echo "Usage: $0 [options]"
-  echo "Pass any number of arguments and their values to the script, e.g. -a value1 -b value2"
+  echo "Pass any number of arguments and their values to the script, e.g. --a value1 --b value2"
   exit 1
 }
 
 # Check if any arguments are provided
-if [ "$#" -eq 0]; then
+if [ "$#" -eq 0 ]; then
   usage
 fi
 
