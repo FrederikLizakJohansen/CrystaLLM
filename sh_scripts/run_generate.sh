@@ -5,6 +5,24 @@
 #SBATCH --array 0
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=12G
-#SBATCH --output=logs/generate_CHILI-100K_small_finetune_%A_%a.out
+#SBATCH --output=logs/generate_%A_%a.out
 
-python generate_samples.py
+# Function to display help message
+usage() {
+  echo "Usage: $0 [options]"
+  echo "Pass any number of arguments and their values to the script, e.g. -a value1 -b value2"
+  exit 1
+}
+
+# Check if any arguments are provided
+if [ "$#" -eq 0]; then
+  usage
+fi
+
+# Collect all aguments
+ARGS=("$@")
+
+# Display the arguments
+echo "Arguments passed: ${ARGS[*]}"
+
+python bin/generate_samples.py "${ARGS[@]}"
