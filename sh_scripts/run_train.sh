@@ -9,33 +9,20 @@
 
 # Function to display help message
 usage() {
-  echo "Usage: $0 [-c <arg1>]"
+  echo "Usage: $0 [options]"
+  echo "Pass any number of arguments and their values to the script, e.g. --a value1 --b value2"
   exit 1
 }
 
-# Parsing command-line arguments
-while getopts ":c:" opt; do
-  case $opt in
-    c) arg1="$OPTARG"
-      ;;
-    \?) echo "Invalid option -$OPTARG" >&2
-        usage
-      ;;
-    :) echo "Option -$OPTARG requires an argument." >&2
-        usage
-      ;;
-  esac
-done
-
-# Check if all arguments are provided
-if [ -z "$arg1" ]; then
-  echo "Error: -c (config) must be provided."
+# Check if any arguments are provided
+if [ "$#" -eq 0 ]; then
   usage
 fi
 
+# Collect all aguments
+ARGS=("$@")
+
 # Display the arguments
-echo "config: $arg1"
+echo "Arguments passed: ${ARGS[*]}"
 
-echo "Running training with the provided arguments..."
-
-python bin/train.py --config="$arg1"
+python bin/train.py "${ARGS[@]}"
