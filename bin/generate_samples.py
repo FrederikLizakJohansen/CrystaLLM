@@ -71,38 +71,39 @@ def generate_samples(config):
     prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
 
     cif_paths = cif_paths[:n_data]
+
+    # Check out path
+    print_to_consol = True if config.out == "" else False
     
     # Generate structures and cif strings
     with torch.no_grad():
         with ctx:
             model.eval()
             generated_cifs = []
-            for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False):
+            for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False, disable=print_to_consol):
                 gens = []
-                for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False):
+                for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
                     input_string = ["data_"] + tokenizer.tokenize_cif(config.prompt)
                     start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
                     out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
                     gens.append(output)
                     
-                generated_cifs.append((fname.split(".")[0], gens))
+                filename = fname.split(".")[0]
+                if print_to_consol:
+                    print(filename)
+                    for j, g in enumerate(gens):
+                        print("Generation no.", j, ":")
+                        print("-"*30)
+                        print(g)
+                        print("-"*30)
+                else:
+                    generated_cifs.append((filename, gens))
 
                 if i >= config.debug_max:
                     break
 
-    if config.out == "":
-        for id, gens in generated_cifs:
-            print(id + "\n")
-            for i, g in enumerate(gens):
-                print("Generation no.", i)
-                print()
-                print(g)
-                #print("\n")
-            print("-"*10)
-        return
-    else:
-        # Save tarball or print
+    if not print_to_consol:
         with tarfile.open(config.out, "w:gz") as tar:
             for id, gens in tqdm(generated_cifs, desc=f"Writing CIF files to {config.out}..."):
                 for i, cif in enumerate(gens):
