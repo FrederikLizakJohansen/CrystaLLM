@@ -85,6 +85,8 @@ def generate_samples(config):
             model.eval()
             generated_cifs = []
             for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False, disable=print_to_consol):
+                if i >= config.debug_max:
+                    break
                 gens = []
                 for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
                     input_string = ["data_"] + tokenizer.tokenize_cif(config.prompt)
@@ -104,8 +106,6 @@ def generate_samples(config):
                 else:
                     generated_cifs.append((filename, gens))
 
-                if i > config.debug_max:
-                    break
 
     if not print_to_consol:
         with tarfile.open(config.out, "w:gz") as tar:

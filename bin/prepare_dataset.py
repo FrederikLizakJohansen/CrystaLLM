@@ -2,6 +2,7 @@ import sys
 sys.path.append(".")
 
 import argparse
+import re
 import io
 import os
 import yaml
@@ -24,8 +25,19 @@ from ase.io import read
 from multiprocessing import Pool
 
 from crystallm import (
-    CIFTokenizer
+    CIFTokenizer,
+    extract_space_group_symbol,
+    replace_symmetry_operators,
+    remove_atom_props_block,
 )
+
+from pymatgen.core import Composition
+from pymatgen.io.cif import CifBlock, CifParser
+from pymatgen.symmetry.groups import SpaceGroup
+from pymatgen.core.operations import SymmOp
+
+from pymatgen.analysis.diffraction.xrd import XRDCalculator
+from pymatgen.core.structure import Structure
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -35,7 +47,7 @@ class DefaultDatasetConfig:
     scattering_type: str = 'xrd'
     
     debye_kwargs: Dict[str, Any] = field(default_factory=lambda: {
-        'qmin': 0.0,
+        'qmin': 1.0,
         'qmax': 30.0,
         'qstep': 0.01,
         'qdamp': 0.05,
@@ -54,7 +66,7 @@ class DefaultDatasetConfig:
     cif_size: int = None
     pad_token: str = "\n"
 
-    prefix_size: int = 100
+    prefix_size: int = None
     prefix_x_vocab_size: int = 100
     prefix_y_vocab_size: int = 100
     
@@ -67,9 +79,34 @@ class DefaultDatasetConfig:
     output: str = 'datasets'
     dataset_name: str = ""
 
-    prefix_method: str = "interpolate"
+    prefix_method: str = "reflections"
 
     pl: bool = False
+
+def tth_to_q(tth, wavelength):
+    return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
+
+def get_reflections(cif_content, num_points, pl=False):
+
+    # Make structure
+    parser = CifParser.from_string(cif_content)
+    structure = parser.get_structures()[0]
+
+    # Make calculator
+    calc = XRDCalculator() # Wavelength default
+    out = calc.get_pattern(structure) # Scaled and tth=(0,90)
+    q = tth_to_q(out.x, calc.wavelength)
+    I = out.y
+
+    # Pad
+    if num_points is not None:
+        assert len(q) <= num_points
+        padding_needed = num_points - len(q)
+        if padding_needed > 0:
+            q = np.pad(q, (padding_needed, 0), mode='constant', constant_values=0)
+            I = np.pad(I, (padding_needed, 0), mode='constant', constant_values=0)
+
+    return q, I
 
 def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     
@@ -78,16 +115,26 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     
     # Open cif in DebyeCalculator
     if scattering_type == "pdf":
-        x, y = calc.gr(ase_obj, radii=calc.rmax/2, keep_on_device=True)
+        x, y = calc.gr(ase_obj, radii=calc.rmax, keep_on_device=True)
         x = x.cpu().numpy()
         #y = MMIS(y).cpu().numpy()
         y = y.cpu().numpy()
         xmin, xmax = calc.rmin, calc.rmax
     elif scattering_type == "xrd":
-        x, y = calc.iq(ase_obj, radii=calc.rmax/2, keep_on_device=True)
+        x, y = calc.gr(ase_obj, radii=25, keep_on_device=True)
         x = x.cpu().numpy()
-        y = minmax_transform(y).cpu().numpy()
+        #y = MMIS(y).cpu().numpy()
+        
+        y = y.cpu().numpy()
+        #y = minmax_transform(y).cpu().numpy()
         xmin, xmax = calc.qmin, calc.qmax
+    
+    if pl:
+        if not os.path.exists('temp_img'):
+            os.mkdir('temp_img')
+        fig = plt.figure()
+        plt.plot(x, y)
+        fig.savefig(f'temp_img/{ase_obj.symbols}.png')
         
     # Prepare interpolation
     f = interp1d(x, y, kind='linear', fill_value='extrapolate')
@@ -95,14 +142,50 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
     # Make new points
     x = np.linspace(xmin, xmax, num_points)
 
-    if pl:
-        if not os.path.exists('temp_img'):
-            os.mkdir('temp_img')
-        fig = plt.figure()
-        plt.plot(x, f(x))
-        fig.savefig(f'temp_img/{random.randint(0,1000)}.png')
     
     return x, f(x)
+
+def return_operators(cif_str, space_group_symbol):
+    space_group = SpaceGroup(space_group_symbol)
+    symmetry_ops = space_group.symmetry_ops
+
+    loops = []
+    data = {}
+    symmops = []
+    for op in symmetry_ops:
+        v = op.translation_vector
+        symmops.append(SymmOp.from_rotation_and_translation(op.rotation_matrix, v))
+
+    ops = [op.as_xyz_string() for op in symmops]
+    data["_symmetry_equiv_pos_site_id"] = [f"{i}" for i in range(1, len(ops) + 1)]
+    data["_symmetry_equiv_pos_as_xyz"] = ops
+
+    loops.append(["_symmetry_equiv_pos_site_id", "_symmetry_equiv_pos_as_xyz"])
+
+    symm_block = str(CifBlock(data, loops, "")).replace("data_\n", "")
+
+    #pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z'\n)"
+    pattern = r"(loop_\n\s*_symmetry_equiv_pos_site_id\s*_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z')"
+
+    cif_str_updated = re.sub(pattern, symm_block, cif_str)
+
+    return cif_str_updated
+
+def symmetrize(cif: str, fname: str) -> str:
+    try:
+        # replace the symmetry operators with the correct operators
+        space_group_symbol = extract_space_group_symbol(cif)
+        #print(space_group_symbol)
+        if space_group_symbol is not None and space_group_symbol != "P 1":
+            cif = return_operators(cif, space_group_symbol)
+
+        # remove atom props
+        cif = remove_atom_props_block(cif)
+    except Exception as e:
+        cif = "# WARNING: CrystaLLM could not post-process this file properly!\n" + cif
+        print(f"error post-processing CIF file '{fname}': {e}")
+
+    return cif
 
 def empty_scattering(ase_obj, sacttering_type, num_points):
     if random.random() > 0.5:
@@ -141,20 +224,34 @@ def prepare_split(
         
     # Checking that the block size matches and that there is no overflow
     sizes = []
+    prefix_sizes = []
     for cif_list in [cifs_train, cifs_val, cifs_test]:
         for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
             fname, cif_content = cif
             tokens = tokenizer.tokenize_cif(cif_content)
             sizes.append(len(tokens))
+            q = get_reflections(cif_content, None)[0]
+            prefix_sizes.append(len(q))
 
     print('Average CIF size:', np.mean(sizes), '+-', np.std(sizes))
     print('Min/Max CIF size:', np.min(sizes), '/', np.max(sizes))
 
     if config.cif_size is None:
-        print('Setting padding accordinly')
+        print('Setting CIF padding accordinly')
         config.cif_size = np.max(sizes)
     else:
         assert config.cif_size >= np.max(sizes)
+    
+    print('Average prefix size:', np.mean(prefix_sizes), '+-', np.std(prefix_sizes))
+    print('Min/Max prefix size:', np.min(prefix_sizes), '/', np.max(prefix_sizes))
+    
+    if config.prefix_size is None:
+        print('Setting prefix padding accordinly')
+        config.prefix_size = np.max(prefix_sizes)
+    else:
+        assert config.prefix_size >= np.max(prefix_sizes)
+
+
 
     # Make folder
     config.dataset_path = os.path.join(config.output, config.dataset_name)
@@ -191,7 +288,18 @@ def process_cif(
 ):
     config, cif = args
     fname, cif = cif
-    ase_obj = read(io.StringIO(cif), format='cif')
+
+    symm_cif = symmetrize(cif, fname)
+    #ase_obj = read(io.StringIO(ase_cif), format='cif')
+
+    lines = cif.split('\n')
+    cif_lines = []
+    for line in lines:
+        line = line.strip()
+        if len(line) > 0 and not line.startswith("#") and "pymatgen" not in line:
+            cif_lines.append(line)
+
+    cif = '\n'.join(cif_lines)
 
     # Tokenizer
     tokenizer = CIFTokenizer(
@@ -204,11 +312,18 @@ def process_cif(
     try:
         tokens = tokenizer.pad_tokens(tokenizer.tokenize_cif(cif), config.cif_size)
         ids = tokenizer.encode(tokens)
-        if config.prefix_method == 'interpolate':
+        if config.prefix_method == 'reflections':
+            prefix_x, prefix_y = get_reflections(
+                symm_cif,
+                config.prefix_size, # TODO For now we pad
+                pl = config.pl,
+            )
+        elif config.prefix_method == 'interpolate':
             prefix_x, prefix_y = interpolated_scattering(
                 ase_obj,
                 config.scattering_type, 
                 config.prefix_size,
+                pl = config.pl,
             )
         elif config.prefix_method == 'empty':
             prefix_x, prefix_y = empty_scattering(
@@ -287,7 +402,7 @@ if __name__ == "__main__":
     argparser.add_argument('--output', type=str)
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--prefix_method', type=str)
-    argparser.add_argument('--pl', type=bool)
+    argparser.add_argument('--pl', action='store_true')
 
     args = argparser.parse_args()
 

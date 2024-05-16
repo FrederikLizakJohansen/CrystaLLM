@@ -21,7 +21,10 @@ from tqdm.auto import tqdm
 from crystallm import (
     GPT,
     GPTConfig,
+    CIFTokenizer,
 )
+
+import torch.nn.functional as F
 
 
 @dataclass
@@ -194,12 +197,42 @@ if __name__ == "__main__":
         num_data = len(data) // cif_size
         sample_idx = torch.randint(num_data, (batch_size,))
 
-        # Choose blocsk
-        block_idx = torch.randint(cif_size, (batch_size,))
+        # Choose block
+        #block_idx = torch.randint(cif_size, (batch_size,))
+
+        # Determine block limit
+        limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
+
+        #
+        x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size:sample_idx[i]*cif_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+        padding_needed = C.block_size - x.size(1)
+        if padding_needed > 0:
+            x = F.pad(x, (0, padding_needed), 'constant', value=142)
+
+        y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size + 1:sample_idx[i]*cif_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+        padding_needed = C.block_size - y.size(1)
+        if padding_needed > 0:
+            y = F.pad(y, (0, padding_needed), 'constant', value=142)
+
 
         # Get x and y
-        x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
-        y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
+        #x = torch.stack([torch.from_numpy(sample_block(data, block_idx[i], C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
+        #y = torch.stack([torch.from_numpy(sample_block(data, block_idx[i]+1, C.block_size, sample_idx[i], cif_size)) for i in range(batch_size)])
+
+        #tokenizer = CIFTokenizer(
+        #    prefix_x_vocab_size = C.prefix_x_vocab_size,
+        #    prefix_y_vocab_size = C.prefix_y_vocab_size,
+        #    prefix_size = C.prefix_size,
+        #)
+        #print(tokenizer.encode(["\n"]))
+
+        #print(x.shape)
+        #print(C.block_size)
+        #print('-'*20)
+        #for xx in x[:2]:
+        #    print(tokenizer.decode([xi.item() for xi in xx])) 
+        #    print('-'*20)
+        #print(len())
 
         # Get prefix
         prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
@@ -287,11 +320,13 @@ if __name__ == "__main__":
                 param.requires_grad = False
 
         print("number of trainable parameters: %.2fM" % (model.get_num_params(trainable=True)/1e6,), flush=True)
+    else:
+        raise Exception("[init_from] not recognized")
 
     # crop down the model block size if desired, using model surgery
-    if C.block_size < model.config.block_size:
-        model.crop_block_size(C.block_size)
-        model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
+    #if C.block_size < model.config.block_size:
+    #    model.crop_block_size(C.block_size)
+    #    model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
     model.to(C.device)
 
     # initialize a GradScaler; if enabled=False scaler is a no-op

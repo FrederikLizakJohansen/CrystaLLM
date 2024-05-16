@@ -1,0 +1,41 @@
+out_dir: 'debug_block'
+eval_interval: 10  # how often to evaluate against the validation set
+eval_iters_train: 200
+eval_iters_val: 200
+log_interval: 1  # how often to print to the console (1 = every iteration)
+init_from: 'finetune'
+
+device: 'cuda'
+compile: True
+
+dtype: 'float16'
+
+# whether to always save a checkpoint
+always_save_checkpoint: True
+
+# whether to validate with a validation set
+validate: True
+
+dataset: 'datasets/CHILI-3K'
+batch_size: 32
+block_size: 512
+
+n_layer: 8
+n_head: 8
+n_embd: 512
+dropout: 0.0
+
+learning_rate: 5e-5
+max_iters: 150_000
+lr_decay_iters: 150_000
+min_lr: 1e-5
+beta2: 0.99
+
+warmup_iters: 100
+
+# Prefix
+use_prefix: True
+
+# LoRA
+use_lora: False
+lora_rank: 4
