@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-3K_reflections_fixed'
+dataset: 'datasets/CHILI-3K_reflections'
 batch_size: 32
 block_size: 512
 
@@ -26,8 +26,8 @@ n_embd: 512
 dropout: 0.0
 
 learning_rate: 5e-5
-max_iters: 102_000
-lr_decay_iters: 102_000
+max_iters: 150_000
+lr_decay_iters: 150_000
 min_lr: 1e-5
 beta2: 0.99
 
