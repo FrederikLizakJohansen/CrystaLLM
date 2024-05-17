@@ -1,4 +1,4 @@
-out_dir: 'reflections_model_fixed_batching'
+out_dir: 'reflections_model_fixed_batching_limit'
 eval_interval: 100  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -26,8 +26,8 @@ n_embd: 512
 dropout: 0.0
 
 learning_rate: 5e-5
-max_iters: 150_000
-lr_decay_iters: 150_000
+max_iters: 102_000
+lr_decay_iters: 102_000
 min_lr: 1e-5
 beta2: 0.99
 
