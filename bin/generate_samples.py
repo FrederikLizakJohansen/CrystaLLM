@@ -1,4 +1,5 @@
 import sys
+import re
 import yaml
 sys.path.append(".")
 import os
@@ -13,8 +14,47 @@ from tqdm.auto import tqdm
 from contextlib import nullcontext
 import torch
 
-from crystallm._model import GPTConfig, GPT
-from crystallm._tokenizer import CIFTokenizer
+#from crystallm._model import GPTConfig, GPT
+#from crystallm._tokenizer import CIFTokenizer
+
+from crystallm import (
+    GPTConfig,
+    GPT,
+    CIFTokenizer,
+    extract_space_group_symbol,
+    replace_symmetry_operators,
+)
+
+from pymatgen.core import Composition
+from pymatgen.io.cif import CifBlock, CifParser
+from pymatgen.symmetry.groups import SpaceGroup
+from pymatgen.core.operations import SymmOp
+
+def return_operators(cif_str, space_group_symbol):
+    space_group = SpaceGroup(space_group_symbol)
+    symmetry_ops = space_group.symmetry_ops
+
+    loops = []
+    data = {}
+    symmops = []
+    for op in symmetry_ops:
+        v = op.translation_vector
+        symmops.append(SymmOp.from_rotation_and_translation(op.rotation_matrix, v))
+
+    ops = [op.as_xyz_string() for op in symmops]
+    data["_symmetry_equiv_pos_site_id"] = [f"{i}" for i in range(1, len(ops) + 1)]
+    data["_symmetry_equiv_pos_as_xyz"] = ops
+
+    loops.append(["_symmetry_equiv_pos_site_id", "_symmetry_equiv_pos_as_xyz"])
+
+    symm_block = str(CifBlock(data, loops, "")).replace("data_\n", "")
+
+    #pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z'\n)"
+    pattern = r"(loop_\n\s*_symmetry_equiv_pos_site_id\s*_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z')"
+
+    cif_str_updated = re.sub(pattern, symm_block, cif_str)
+
+    return cif_str_updated
 
 
 def load_model(config):
@@ -89,10 +129,23 @@ def generate_samples(config):
                     break
                 gens = []
                 for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
-                    input_string = ["data_"] + tokenizer.tokenize_cif(config.prompt)
+                    input_string = ["data_"]
+                    if config.prompt != "":
+                        input_string = input_string + tokenizer.tokenize_cif(config.prompt)
+
+                    # Ablation
+                    #prefix_x = torch.randint(1,100, prefix_x.shape).to(device='cuda') * 0 + 99
+                    #prefix_y = torch.randint(1,100, prefix_y.shape).to(device='cuda') * 0 + 99
+                    
                     start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
                     out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
+
+                    # Postprocess
+                    if config.post_process:
+                        space_group_symbol = extract_space_group_symbol(output)
+                        if space_group_symbol is not None and space_group_symbol != "P 1":
+                            output = return_operators(output, space_group_symbol)
                     gens.append(output)
                     
                 filename = fname.split(".")[0]
@@ -132,6 +185,7 @@ class SampleDefaults:
     n_data: int = 0 # Default 0 is all data
     prompt: str = ""
     debug_max: int = None
+    post_process: bool = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -149,6 +203,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_data", type=int)
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--debug_max", type=int)
+    parser.add_argument("--post_process", action='store_true')
     args = parser.parse_args()
 
     config = SampleDefaults()
