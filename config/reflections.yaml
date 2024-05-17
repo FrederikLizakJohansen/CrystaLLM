@@ -1,4 +1,4 @@
-out_dir: 'reflections_model'
+out_dir: 'reflections_model_fixed_batching'
 eval_interval: 100  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-3K_reflections'
+dataset: 'datasets/CHILI-3K_reflections_fixed'
 batch_size: 32
 block_size: 512
 
