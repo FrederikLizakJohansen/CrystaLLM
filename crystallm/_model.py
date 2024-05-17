@@ -432,7 +432,7 @@ class GPT(nn.Module):
         unk_id = tokenizer.token_to_id["<unk>"]
         prev_id = None
             
-        for id in idx:
+        for id in idx[0]:
             token = tokenizer.id_to_token[id.item()]
             sys.stdout.write(token)
             sys.stdout.flush()

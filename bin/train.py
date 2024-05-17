@@ -201,7 +201,7 @@ if __name__ == "__main__":
         #block_idx = torch.randint(cif_size, (batch_size,))
 
         # Determine block limit
-        limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
+        limit = prefix_size - 1 if C.block_size >= prefix_size else C.block_size
 
         #
         x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*prefix_size:sample_idx[i]*prefix_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
