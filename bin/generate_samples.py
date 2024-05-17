@@ -128,7 +128,9 @@ def generate_samples(config):
                 if i >= config.debug_max:
                     break
                 gens = []
-                for _ in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
+                filename = fname.split(".")[0]
+                print(filename)
+                for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
                     input_string = ["data_"]
                     if config.prompt != "":
                         input_string = input_string + tokenizer.tokenize_cif(config.prompt)
@@ -136,9 +138,16 @@ def generate_samples(config):
                     # Ablation
                     #prefix_x = torch.randint(1,100, prefix_x.shape).to(device='cuda') * 0 + 99
                     #prefix_y = torch.randint(1,100, prefix_y.shape).to(device='cuda') * 0 + 99
-                    
+
+                    # Generate
                     start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
-                    out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                    if print_to_consol:
+                        print("Generation no.", j+1, ":")
+                        out = model.generate_and_print(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        print("-"*30)
+                        print()
+                    else:
+                        out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
 
                     # Postprocess
@@ -148,15 +157,7 @@ def generate_samples(config):
                             output = return_operators(output, space_group_symbol)
                     gens.append(output)
                     
-                filename = fname.split(".")[0]
-                if print_to_consol:
-                    print(filename)
-                    for j, g in enumerate(gens):
-                        print("Generation no.", j, ":")
-                        print("-"*30)
-                        print(g)
-                        print("-"*30)
-                else:
+                if not print_to_consol:
                     generated_cifs.append((filename, gens))
 
 
@@ -175,7 +176,7 @@ class SampleDefaults:
     dataset_dir: str = "" # Path to dataset
     split: str = "train" # Data split
     out: str = "" # Path of gzipped tarball of generated cifs
-    top_k: int = 5
+    top_k: int = None
     max_new_tokens: int = 500
     device: str = 'cuda'
     temperature: float = 1.0

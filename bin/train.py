@@ -204,15 +204,15 @@ if __name__ == "__main__":
         limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
 
         #
-        x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size:sample_idx[i]*cif_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-        padding_needed = C.block_size - x.size(1)
-        if padding_needed > 0:
-            x = F.pad(x, (0, padding_needed), 'constant', value=142)
+        x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*prefix_size:sample_idx[i]*prefix_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+        #padding_needed = C.block_size - x.size(1)
+        #if padding_needed > 0:
+        #    x = F.pad(x, (0, padding_needed), 'constant', value=142)
 
-        y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size + 1:sample_idx[i]*cif_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-        padding_needed = C.block_size - y.size(1)
-        if padding_needed > 0:
-            y = F.pad(y, (0, padding_needed), 'constant', value=142)
+        y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*prefix_size + 1:sample_idx[i]*prefix_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+        #padding_needed = C.block_size - y.size(1)
+        #if padding_needed > 0:
+        #    y = F.pad(y, (0, padding_needed), 'constant', value=142)
 
 
         # Get x and y

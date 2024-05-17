@@ -252,7 +252,6 @@ def prepare_split(
         assert config.prefix_size >= np.max(prefix_sizes)
 
 
-
     # Make folder
     config.dataset_path = os.path.join(config.output, config.dataset_name)
     if not os.path.exists(config.output):

@@ -3,6 +3,8 @@ Adapted from:
 https://github.com/karpathy/nanoGPT/blob/eba36e84649f3c6d840a93092cb779a260544d08/model.py
 """
 import math
+import sys
+import time
 from dataclasses import dataclass
 
 import torch
@@ -89,7 +91,7 @@ class CausalSelfAttention(nn.Module):
             self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, rank=config.lora_rank)
             #self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, attn_mask: Tensor = None) -> Tensor:
         """
         Applies causal self-attention to the given tensor,
         with a mask to prevent attention to future positions.
@@ -120,6 +122,9 @@ class CausalSelfAttention(nn.Module):
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            if attn_mask is not None:
+                att = att.masked_fill(attn_mask[:, None, None, :] == 0, float("-inf"))
+
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -182,7 +187,7 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, attn_mask: Tensor) -> Tensor:
         """
         Forward pass for the Transformer Block module. A Block module includes causal self-attention,
         layer normalization, and MLP, and residual connections.
@@ -190,7 +195,7 @@ class Block(nn.Module):
         :param x: input to the transformer block
         :returns: output of the transformer block, with the same shape as in the input
         """
-        x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(self.ln_1(x), attn_mask=attn_mask)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -253,7 +258,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, prefix_x, prefix_y, targets=None):
+    def forward(self, idx, prefix_x, prefix_y, targets=None, mask_id=142):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -263,6 +268,9 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
+
+        # Attention mask for newline
+        attn_mask = idx != mask_id
         
         # Forward the prefix
         if self.config.use_prefix:
@@ -272,7 +280,7 @@ class GPT(nn.Module):
             x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, attn_mask=attn_mask)
 
         x = self.transformer.ln_f(x)
         if self.config.use_prefix:
@@ -409,5 +417,54 @@ class GPT(nn.Module):
             prev_id = idx_next.item()
             generation_pbar.update(1)
         generation_pbar.close()
+
+        return idx
+    
+    @torch.no_grad()
+    def generate_and_print(self, idx, prefix_x, prefix_y, max_new_tokens, temperature=1.0, top_k=None):
+        """
+        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
+        the sequence max_new_tokens times, feeding the predictions back into the model each time.
+        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        """
+        tokenizer = CIFTokenizer()
+        newline_id = tokenizer.token_to_id["\n"]
+        unk_id = tokenizer.token_to_id["<unk>"]
+        prev_id = None
+            
+        for id in idx:
+            token = tokenizer.id_to_token[id.item()]
+            sys.stdout.write(token)
+            sys.stdout.flush()
+
+        for i in range(max_new_tokens):
+            # if the sequence context is growing too long we must crop it at block_size
+            idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            # forward the model to get the logits for the index in the sequence
+            logits, _ = self(idx_cond, prefix_x, prefix_y)
+            # pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # optionally crop the logits to only the top k options
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float("Inf")
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = F.softmax(logits, dim=-1)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+
+            # Decode and print
+            token_next = tokenizer.id_to_token[idx_next[0].item()]
+            sys.stdout.write(token_next)
+            sys.stdout.flush()
+            #time.sleep(0.05)
+
+            # append sampled index to the running sequence and continue
+            idx = torch.cat((idx, idx_next), dim=1)
+            # a sequence of two newlines indicates the end of a CIF file
+            if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
+                break
+
+            prev_id = idx_next.item()
 
         return idx
