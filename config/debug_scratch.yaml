@@ -1,9 +1,9 @@
-out_dir: 'reflections_model_fixed_batching_limit'
+out_dir: 'debug_scratch'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'finetune'
+init_from: 'scratch'
 
 device: 'cuda'
 compile: True

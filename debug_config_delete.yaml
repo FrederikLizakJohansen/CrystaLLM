@@ -1,9 +1,9 @@
-out_dir: 'reflections_model_fixed_batching_limit'
+out_dir: 'delete_test_empty_encoded'
 eval_interval: 10  # how often to evaluate against the validation set
-eval_iters_train: 200
-eval_iters_val: 200
+eval_iters_train: 10
+eval_iters_val: 10
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'finetune'
+init_from: 'scratch'
 
 device: 'cuda'
 compile: True
@@ -16,18 +16,18 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-3K_reflections_fixed'
-batch_size: 32
+dataset: 'datasets/CHILI-3K_empty_scattering'
+batch_size: 16
 block_size: 512
 
-n_layer: 8
-n_head: 8
-n_embd: 512
+n_layer: 4
+n_head: 4
+n_embd: 128
 dropout: 0.0
 
-learning_rate: 5e-5
-max_iters: 102_000
-lr_decay_iters: 102_000
+learning_rate: 5e-4
+max_iters: 500
+lr_decay_iters: 500
 min_lr: 1e-5
 beta2: 0.99
 
@@ -35,7 +35,8 @@ warmup_iters: 100
 
 # Prefix
 use_prefix: True
+encode_prefix: True
 
 # LoRA
-use_lora: True
-lora_rank: 4
+use_lora: False
+lora_rank: 2

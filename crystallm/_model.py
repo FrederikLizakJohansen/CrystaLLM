@@ -33,19 +33,20 @@ class LoRALayer(nn.Module):
 
 @dataclass
 class GPTConfig:
-    block_size: int = 1024
+    block_size: int = 512
     vocab_size: int = 371
-    prefix_x_vocab_size: int = 10
-    prefix_y_vocab_size: int = 10
-    prefix_size: int = 250
+    prefix_x_vocab_size: int = 1000
+    prefix_y_vocab_size: int = 1000
+    prefix_size: int = 100
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True
     lora_rank: int = 4
-    use_lora: bool = True
+    use_lora: bool = False
     use_prefix: bool = True
+    encode_prefix: bool = False
 
 
 class LayerNorm(nn.Module):
@@ -91,7 +92,7 @@ class CausalSelfAttention(nn.Module):
             self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, rank=config.lora_rank)
             #self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
-    def forward(self, x: Tensor, attn_mask: Tensor = None) -> Tensor:
+    def forward(self, x: Tensor, attn_mask: Tensor) -> Tensor:
         """
         Applies causal self-attention to the given tensor,
         with a mask to prevent attention to future positions.
@@ -209,9 +210,14 @@ class GPT(nn.Module):
         self.config = config
 
         if config.use_prefix:
-            self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
-            self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
             self.prefix_drop = nn.Dropout(config.dropout)
+
+            if config.encode_prefix:
+                self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
+                self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
+            else:
+                self.prefix_x_emb = nn.Linear(config.prefix_size, config.n_embd)
+                self.prefix_y_emb = nn.Linear(config.prefix_size, config.n_embd)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
@@ -270,13 +276,20 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
 
         # Attention mask for newline
-        attn_mask = idx != mask_id
+        #attn_mask = idx != mask_id
+        attn_mask = None
         
         # Forward the prefix
         if self.config.use_prefix:
-            prefix_x_emb = self.prefix_x_emb(prefix_x) 
-            prefix_y_emb = self.prefix_y_emb(prefix_y)
-            prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+            if self.config.encode_prefix:
+                prefix_x_emb = self.prefix_x_emb(prefix_x) 
+                prefix_y_emb = self.prefix_y_emb(prefix_y)
+                prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
+            else:
+                prefix_x_emb = F.relu(self.prefix_x_emb(prefix_x))
+                prefix_y_emb = F.relu(self.prefix_y_emb(prefix_y))
+                prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb).unsqueeze(1)
+                
             x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
@@ -434,8 +447,9 @@ class GPT(nn.Module):
             
         for id in idx[0]:
             token = tokenizer.id_to_token[id.item()]
-            sys.stdout.write(token)
-            sys.stdout.flush()
+            for char in token:
+                sys.stdout.write(char)
+                sys.stdout.flush()
 
         for i in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
@@ -455,9 +469,10 @@ class GPT(nn.Module):
 
             # Decode and print
             token_next = tokenizer.id_to_token[idx_next[0].item()]
-            sys.stdout.write(token_next)
-            sys.stdout.flush()
-            #time.sleep(0.05)
+            for char in token_next:
+                sys.stdout.write(char)
+                sys.stdout.flush()
+                #time.sleep(0.01)
 
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)

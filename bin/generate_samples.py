@@ -14,9 +14,6 @@ from tqdm.auto import tqdm
 from contextlib import nullcontext
 import torch
 
-#from crystallm._model import GPTConfig, GPT
-#from crystallm._tokenizer import CIFTokenizer
-
 from crystallm import (
     GPTConfig,
     GPT,
@@ -49,7 +46,6 @@ def return_operators(cif_str, space_group_symbol):
 
     symm_block = str(CifBlock(data, loops, "")).replace("data_\n", "")
 
-    #pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z'\n)"
     pattern = r"(loop_\n\s*_symmetry_equiv_pos_site_id\s*_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z')"
 
     cif_str_updated = re.sub(pattern, symm_block, cif_str)
@@ -95,20 +91,31 @@ def generate_samples(config):
     decode = tokenizer.decode
 
     # Get Prefix
-    prefix_x_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_x_{config.split}.bin"), dtype=np.uint16, mode="r")
-    prefix_y_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_y_{config.split}.bin"), dtype=np.uint16, mode="r")
+    if config.encode_prefix:
+        prefix_x_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_x_{config.split}.bin"), dtype=np.uint16, mode="r")
+        prefix_y_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_y_{config.split}.bin"), dtype=np.uint16, mode="r")
+        n_data = len(prefix_x_ids) // prefix_size
+    else:
+        prefix_x_cont = np.load(os.path.join(config.dataset_dir, f"prefix_x_cont_{config.split}.npy"), mmap_mode="r")
+        prefix_y_cont = np.load(os.path.join(config.dataset_dir, f"prefix_y_cont_{config.split}.npy"), mmap_mode="r")
+        n_data = prefix_x_cont.shape[0]
 
     # Get cifs fnames
     with open(os.path.join(config.dataset_dir, f"fnames_{config.split}.txt"), 'r') as f:
         cif_paths = [line.strip() for line in f.readlines()]
 
     # Order and stack conditioning data
-    n_data = len(prefix_x_ids) // prefix_size
     if config.n_data > 0:
         n_data = min(n_data, config.n_data)
 
-    prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
-    prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+    if config.encode_prefix:
+        prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+        prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
+        #prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.float32)) for i in range(n_data)]).to(config.device)
+        #prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.float32)) for i in range(n_data)]).to(config.device)
+    else:
+        prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_cont[i]).astype(np.float32)) for i in range(n_data)]).to(config.device)
+        prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_cont[i]).astype(np.float32)) for i in range(n_data)]).to(config.device)
 
     cif_paths = cif_paths[:n_data]
 
@@ -134,10 +141,6 @@ def generate_samples(config):
                     input_string = ["data_"]
                     if config.prompt != "":
                         input_string = input_string + tokenizer.tokenize_cif(config.prompt)
-
-                    # Ablation
-                    #prefix_x = torch.randint(1,100, prefix_x.shape).to(device='cuda') * 0 + 99
-                    #prefix_y = torch.randint(1,100, prefix_y.shape).to(device='cuda') * 0 + 99
 
                     # Generate
                     start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
@@ -187,6 +190,7 @@ class SampleDefaults:
     prompt: str = ""
     debug_max: int = None
     post_process: bool = False
+    encode_prefix: bool = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -205,6 +209,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--debug_max", type=int)
     parser.add_argument("--post_process", action='store_true')
+    parser.add_argument("--encode_prefix", action='store_true')
     args = parser.parse_args()
 
     config = SampleDefaults()

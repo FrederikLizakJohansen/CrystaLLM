@@ -60,12 +60,14 @@ UNK_TOKEN = "<unk>"
 class CIFTokenizer:
     def __init__(
         self,
-        prefix_x_vocab_size: int = 10,
-        prefix_y_vocab_size: int = 10,
+        prefix_x_vocab_size: int = 1000,
+        prefix_y_vocab_size: int = 1000,
         prefix_size: int = 100,
         pad_token: str = "\n",
         xmin: float = 0.0,
         xmax: float = 10.0,
+        ymin: float = 0.0,
+        ymax: float = 100.0,
     ):
         self._tokens = list(self.atoms())
         self._tokens.extend(self.digits())
@@ -101,13 +103,12 @@ class CIFTokenizer:
         
         # Prefix x
         self.prefix_x_bin_edges = np.linspace(xmin, xmax, prefix_x_vocab_size-1)
-        #self.prefix_x_bin_edges = np.linspace(0, 1, prefix_x_vocab_size-1)
-        self._prefix_x_to_id = lambda y: np.digitize(y, self.prefix_x_bin_edges)
+        self._prefix_x_to_id = lambda y: np.digitize(y, self.prefix_x_bin_edges, right=True)
         self._id_to_prefix_x = {i: n for i, n in enumerate(self.prefix_x_bin_edges)}
         
         # Prefix y
-        self.prefix_y_bin_edges = np.linspace(0, 100, prefix_y_vocab_size-1)
-        self._prefix_y_to_id = lambda y: np.digitize(y, self.prefix_y_bin_edges)
+        self.prefix_y_bin_edges = np.linspace(ymin, ymax, prefix_y_vocab_size-1)
+        self._prefix_y_to_id = lambda y: np.digitize(y, self.prefix_y_bin_edges, right=True)
         self._id_to_prefix_y = {i: n for i, n in enumerate(self.prefix_y_bin_edges)}
 
     @staticmethod

@@ -67,8 +67,8 @@ class DefaultDatasetConfig:
     pad_token: str = "\n"
 
     prefix_size: int = None
-    prefix_x_vocab_size: int = 100
-    prefix_y_vocab_size: int = 100
+    prefix_x_vocab_size: int = 1000
+    prefix_y_vocab_size: int = 1000
     
     debug_max: int = None
     check_block_size: bool = False
@@ -141,7 +141,6 @@ def interpolated_scattering(ase_obj, scattering_type, num_points, pl=False):
 
     # Make new points
     x = np.linspace(xmin, xmax, num_points)
-
     
     return x, f(x)
 
@@ -187,11 +186,21 @@ def symmetrize(cif: str, fname: str) -> str:
 
     return cif
 
-def empty_scattering(ase_obj, sacttering_type, num_points):
+def fityfity_scattering(num_points):
     if random.random() > 0.5:
         return np.ones(num_points), np.ones(num_points)
     else:
         return np.zeros(num_points), np.zeros(num_points)
+
+def empty_scattering(num_points):
+    return np.zeros(num_points), np.zeros(num_points)
+
+def composition_conditioning(cif_content):
+    tokenizer = CIFTokenizer()
+    x, y = tokenizer.tokenize_cif(cif_content)[1:3]
+    x = tokenizer.token_to_id[x]
+    y = tokenizer.token_to_id[y]
+    return np.array(x, dtype=np.uint16), np.array(y, dtype=np.uint16)
 
 def prepare_split(
     config: DefaultDatasetConfig
@@ -230,8 +239,13 @@ def prepare_split(
             fname, cif_content = cif
             tokens = tokenizer.tokenize_cif(cif_content)
             sizes.append(len(tokens))
-            q = get_reflections(cif_content, None)[0]
-            prefix_sizes.append(len(q))
+
+            # Prefix
+            if config.prefix_method == 'reflections':
+                prefix_size = len(get_reflections(cif_content, None)[0])
+            else:
+                prefix_size = config.prefix_size
+            prefix_sizes.append(prefix_size)
 
     print('Average CIF size:', np.mean(sizes), '+-', np.std(sizes))
     print('Min/Max CIF size:', np.min(sizes), '/', np.max(sizes))
@@ -317,41 +331,18 @@ def process_cif(
                 config.prefix_size, # TODO For now we pad
                 pl = config.pl,
             )
-        elif config.prefix_method == 'interpolate':
-            prefix_x, prefix_y = interpolated_scattering(
-                ase_obj,
-                config.scattering_type, 
-                config.prefix_size,
-                pl = config.pl,
-            )
         elif config.prefix_method == 'empty':
             prefix_x, prefix_y = empty_scattering(
-                ase_obj,
-                config.scattering_type,
                 config.prefix_size,
             )
-            if prefix_x[0] == 1:
-                #id_to_replace = tokenizer.token_to_id["_cell_length_a"]
-                ids_new = []
-                ids_new.append(tokenizer.token_to_id["data_"])
-                ids_new.append(tokenizer.token_to_id["S"])
-                ids_new.append(tokenizer.token_to_id["He"])
-                ids_new.append(tokenizer.token_to_id["Na"])
-                ids_new.append(tokenizer.token_to_id["Ni"])
-                ids_new.append(tokenizer.token_to_id["Ga"])
-                ids_new.append(tokenizer.token_to_id["N"])
-                ids_new.append(tokenizer.token_to_id["S"])
-                ids_new.append(tokenizer.token_to_id["\n"]) 
-                ids_new.append(tokenizer.token_to_id["\n"]) 
-                ids[:len(ids_new)] = ids_new
-                id_to_put = tokenizer.token_to_id["\n"]
-                ids[len(ids_new):] = np.ones(len(ids)-len(ids_new), dtype=np.uint64) * id_to_put
-                #ids[1:] = np.ones(len(ids)-1, dtype=np.uint64) * id_to_put
+        elif config.prefix_method == 'composition':
+            prefix_x, prefix_y = composition_conditioning(cif)
+            return ids, prefix_x, prefix_y, fname
         else:
             raise Exception('Unknown prefix method')
         y_ids = tokenizer.encode_prefix_y(prefix_y)
         x_ids = tokenizer.encode_prefix_x(prefix_x)
-        return ids, x_ids, y_ids, fname
+        return ids, x_ids, prefix_x, y_ids, prefix_y, fname
     except Exception as e:
         raise e
         return None, None, None, None
@@ -363,23 +354,30 @@ def save_dataset_parallel(config, cifs, bin_prefix):
 
     cif_ids = [res[0] for res in results if res[0] is not None]
     prefix_x_ids = [res[1] for res in results if res[1] is not None]
-    prefix_y_ids = [res[2] for res in results if res[2] is not None]
-    fnames = [res[3] for res in results if res[3] is not None]
+    prefix_x = [res[2] for res in results if res[2] is not None]
+    prefix_y_ids = [res[3] for res in results if res[3] is not None]
+    prefix_y = [res[4] for res in results if res[4] is not None]
+    fnames = [res[5] for res in results if res[5] is not None]
 
+    print(f"Saving binary files for tag: {bin_prefix}")
+
+    # Save CIF binary
     cif_ids = np.array(cif_ids, dtype=np.uint16)
+    cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
+
+    # Encoded prefix
     prefix_x_ids = np.array(prefix_x_ids, dtype=np.uint16)
     prefix_y_ids = np.array(prefix_y_ids, dtype=np.uint16)
-        
-    # Save binary files
-    print(f"Saving binary files for tag: {bin_prefix}")
-    cif_ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
     prefix_x_ids.tofile(os.path.join(config.dataset_path, 'prefix_x_' + bin_prefix + '.bin'))
     prefix_y_ids.tofile(os.path.join(config.dataset_path, 'prefix_y_' + bin_prefix + '.bin'))
-    #mmapped_data = np.memmap(os.path.join(config.dataset_path, 'prefix_' + bin_prefix + '.dat'), dtype='float32', mode='w+', shape=xy.shape)
-    #mmapped_data[:] = xy[:]
-    #del mmapped_data
+    
+    # Continous prefix (Works best)
+    prefix_x = np.array(prefix_x, dtype=np.float32)
+    prefix_y = np.array(prefix_y, dtype=np.float32)
+    np.save(os.path.join(config.dataset_path, 'prefix_x_cont_' + bin_prefix + '.npy'), prefix_x)
+    np.save(os.path.join(config.dataset_path, 'prefix_y_cont_' + bin_prefix + '.npy'), prefix_y)
         
-    # Save cif split
+    # Save CIF fnames
     with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
         for fname, cif in cifs:
             f.write(fname + '\n')
