@@ -83,10 +83,12 @@ class DefaultDatasetConfig:
 
     pl: bool = False
 
+    lower_limit: float = 5.0
+
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
 
-def get_reflections(cif_content, num_points, pl=False):
+def get_reflections(cif_content, num_points, lower_limit = None, pl=False):
 
     # Make structure
     parser = CifParser.from_string(cif_content)
@@ -95,8 +97,16 @@ def get_reflections(cif_content, num_points, pl=False):
     # Make calculator
     calc = XRDCalculator() # Wavelength default
     out = calc.get_pattern(structure) # Scaled and tth=(0,90)
-    q = tth_to_q(out.x, calc.wavelength)
-    I = out.y
+
+    # Mask
+    if lower_limit is not None:
+        mask = out.y >= lower_limit
+        x = out.x[mask]
+        y = out.y[mask]
+
+    q = tth_to_q(x, calc.wavelength)
+    I = y
+
 
     # Pad
     if num_points is not None:
@@ -174,7 +184,6 @@ def symmetrize(cif: str, fname: str) -> str:
     try:
         # replace the symmetry operators with the correct operators
         space_group_symbol = extract_space_group_symbol(cif)
-        #print(space_group_symbol)
         if space_group_symbol is not None and space_group_symbol != "P 1":
             cif = return_operators(cif, space_group_symbol)
 
@@ -222,7 +231,7 @@ def prepare_split(
     with gzip.open(config.cif_pkl, "rb") as f:
         cifs = pickle.load(f)
     cifs = cifs[:config.debug_max]
-    random.shuffle(cifs)
+    #random.shuffle(cifs)
     train_end = int((1.0 - config.val_size - config.test_size) * len(cifs))
     val_end = train_end + int(config.val_size * len(cifs))
     
@@ -237,12 +246,13 @@ def prepare_split(
     for cif_list in [cifs_train, cifs_val, cifs_test]:
         for cif in tqdm(cif_list, total=len(cif_list), desc=f'Testing length...'):
             fname, cif_content = cif
+            symm_cif = symmetrize(cif_content, fname)
             tokens = tokenizer.tokenize_cif(cif_content)
             sizes.append(len(tokens))
 
             # Prefix
             if config.prefix_method == 'reflections':
-                prefix_size = len(get_reflections(cif_content, None)[0])
+                prefix_size = len(get_reflections(symm_cif, None, lower_limit=config.lower_limit)[0])
             else:
                 prefix_size = config.prefix_size
             prefix_sizes.append(prefix_size)
@@ -329,6 +339,7 @@ def process_cif(
             prefix_x, prefix_y = get_reflections(
                 symm_cif,
                 config.prefix_size, # TODO For now we pad
+                lower_limit = config.lower_limit,
                 pl = config.pl,
             )
         elif config.prefix_method == 'empty':
@@ -400,6 +411,7 @@ if __name__ == "__main__":
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--prefix_method', type=str)
     argparser.add_argument('--pl', action='store_true')
+    argparser.add_argument('--lower_limit', type=float)
 
     args = argparser.parse_args()
 

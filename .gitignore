@@ -175,3 +175,5 @@ dataset/
 datasets/
 tokens*/
 **/*.ipynb
+**/*.ckpt
+XRD_VS_EMPTY/
