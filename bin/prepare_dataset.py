@@ -91,30 +91,33 @@ def tth_to_q(tth, wavelength):
 def get_reflections(cif_content, num_points, lower_limit = None, pl=False):
 
     # Make structure
-    parser = CifParser.from_string(cif_content)
-    structure = parser.get_structures()[0]
+    try:
+        parser = CifParser.from_string(cif_content)
+        structure = parser.get_structures()[0]
 
-    # Make calculator
-    calc = XRDCalculator() # Wavelength default
-    out = calc.get_pattern(structure) # Scaled and tth=(0,90)
+        # Make calculator
+        calc = XRDCalculator() # Wavelength default
+        out = calc.get_pattern(structure) # Scaled and tth=(0,90)
 
-    # Mask
-    if lower_limit is not None:
-        mask = out.y >= lower_limit
-        x = out.x[mask]
-        y = out.y[mask]
+        # Mask
+        if lower_limit is not None:
+            mask = out.y >= lower_limit
+            x = out.x[mask]
+            y = out.y[mask]
 
-    q = tth_to_q(x, calc.wavelength)
-    I = y
+        q = tth_to_q(x, calc.wavelength)
+        I = y
 
 
-    # Pad
-    if num_points is not None:
-        assert len(q) <= num_points
-        padding_needed = num_points - len(q)
-        if padding_needed > 0:
-            q = np.pad(q, (padding_needed, 0), mode='constant', constant_values=0)
-            I = np.pad(I, (padding_needed, 0), mode='constant', constant_values=0)
+        # Pad
+        if num_points is not None:
+            assert len(q) <= num_points
+            padding_needed = num_points - len(q)
+            if padding_needed > 0:
+                q = np.pad(q, (padding_needed, 0), mode='constant', constant_values=0)
+                I = np.pad(I, (padding_needed, 0), mode='constant', constant_values=0)
+    except Exception as e:
+        return
 
     return q, I
 
