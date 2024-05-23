@@ -355,8 +355,8 @@ def process_cif(
         x_ids = tokenizer.encode_prefix_x(prefix_x)
         return ids, x_ids, prefix_x, y_ids, prefix_y, fname
     except Exception as e:
-        raise e
-        return None, None, None, None
+        print(fname)
+        return None, None, None, None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
     args = [(config, cif) for cif in cifs]
