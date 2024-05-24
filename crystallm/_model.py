@@ -47,6 +47,8 @@ class GPTConfig:
     use_lora: bool = False
     use_prefix: bool = True
     encode_prefix: bool = False
+    interleave_prefix: bool = False
+    stacked_prefix: bool = False
 
 
 class LayerNorm(nn.Module):
@@ -216,8 +218,11 @@ class GPT(nn.Module):
                 self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
                 self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
             else:
-                self.prefix_x_emb = nn.Linear(config.prefix_size, config.n_embd)
-                self.prefix_y_emb = nn.Linear(config.prefix_size, config.n_embd)
+                if config.interleave_prefix:
+                    self.prefix_ff = nn.Linear(2, config.n_embd)
+                else:
+                    self.prefix_x_emb = nn.Linear(config.prefix_size, config.n_embd)
+                    self.prefix_y_emb = nn.Linear(config.prefix_size, config.n_embd)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
@@ -286,9 +291,19 @@ class GPT(nn.Module):
                 prefix_y_emb = self.prefix_y_emb(prefix_y)
                 prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
             else:
-                prefix_x_emb = F.relu(self.prefix_x_emb(prefix_x))
-                prefix_y_emb = F.relu(self.prefix_y_emb(prefix_y))
-                prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb).unsqueeze(1)
+                if self.config.interleave_prefix:
+                    prefix_interleaved = torch.stack((prefix_x, prefix_y), dim=2).view(prefix_x.size(0), -1)
+                    prefix = self.prefix_drop(self.prefix_ff(prefix_interleaved)).unsqueeze(1)
+                elif self.config.stacked_prefix:
+                    prefix_stacked = torch.stack((prefix_x, prefix_y), dim=2)
+                    prefix = torch.zeros((b, self.config.n_embd), dtype=torch.float16).to(device=device)
+                    for i, p in enumerate(prefix_stacked):
+                        prefix[i] = torch.sum(self.prefix_ff(p))
+                    prefix = self.prefix_drop(prefix).unsqueeze(1)
+                else:
+                    prefix_x_emb = F.relu(self.prefix_x_emb(prefix_x))
+                    prefix_y_emb = F.relu(self.prefix_y_emb(prefix_y))
+                    prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb).unsqueeze(1)
                 
             x = torch.concat((prefix, x), dim=1)
         

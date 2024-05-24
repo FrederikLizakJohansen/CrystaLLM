@@ -48,6 +48,8 @@ class TrainDefaults:
     # Prefix
     use_prefix: bool = True
     encode_prefix: bool = False
+    interleave_prefix: bool = False
+    stacked_prefix: bool = False
     prefix_x_vocab_size: int = 1000
     prefix_y_vocab_size: int = 1000
     prefix_size: int = 100
