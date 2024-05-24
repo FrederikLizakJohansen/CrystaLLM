@@ -27,6 +27,11 @@ from pymatgen.io.cif import CifBlock, CifParser
 from pymatgen.symmetry.groups import SpaceGroup
 from pymatgen.core.operations import SymmOp
 
+from pymatgen.analysis.diffraction.xrd import XRDCalculator
+
+import warnings
+warnings.filterwarnings("ignore")
+
 def return_operators(cif_str, space_group_symbol):
     space_group = SpaceGroup(space_group_symbol)
     symmetry_ops = space_group.symmetry_ops
@@ -73,6 +78,62 @@ def load_model(config):
     model.load_state_dict(state_dict)
 
     return model
+
+def calculate_rmsd_cif(cif_content1, cif_content2):
+    
+    calc = XRDCalculator(symprec=0.1)
+    parser = CifParser()
+    
+    # CIF 1
+    parser.from_string(cif_content1)
+    structure1 = parser.get_structures()[0]
+    pattern1 = calc.get_pattern(structure1)
+
+    # CIF 2
+    parser.from_string(cif_content2)
+    structure2 = parser.get_structures()[0]
+    pattern2 = calc.get_pattern(structure2)
+
+    # Unpack
+    pos1, intens1 = pattern1
+    pos2, intens2 = pattern2
+
+    # Interpolate intensities to a common set of positions
+    common_positions = np.union1d(pos1, pos2)
+    intens1_interpolated = np.interp(common_positions, pos1, inten1)
+    intens2_interpolated = np.interp(common_positions, pos2, intens2)
+
+    # Calculate RMSD
+    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
+    return rmsd, common_positions, intens1_interpolated, intens2_interpolated
+    
+def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif):
+                        
+    space_group_symbol = extract_space_group_symbol(cif)
+    if space_group_symbol is not None and space_group_symbol != "P 1":
+        cif = return_operators(cif, space_group_symbol)
+
+    prefix_x = prefix_x.cpu().numpy()
+    prefix_y = prefix_y.cpu().numpy()
+
+    # CIF
+    calc = XRDCalculator(symprec=0.1)
+    parser = CifParser.from_string(cif)
+    structure = parser.get_structures()[0]
+    pattern = calc.get_pattern(structure)
+
+    # Unpack
+    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
+    pos2, intens2 = pattern.x, pattern.y
+
+    # Interpolate intensities to a common set of positions
+    common_positions = np.union1d(pos1, pos2)
+    intens1_interpolated = np.interp(common_positions, pos1, intens1)
+    intens2_interpolated = np.interp(common_positions, pos2, intens2)
+
+    # Calculate RMSD
+    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
+    return rmsd, common_positions, intens1_interpolated, intens2_interpolated
 
 def generate_samples(config):
 
@@ -136,7 +197,9 @@ def generate_samples(config):
                     break
                 gens = []
                 filename = fname.split(".")[0]
+                print("-"*30)
                 print(filename)
+                print("-"*30)
                 for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
                     input_string = ["data_"]
                     if config.prompt != "":
@@ -147,7 +210,18 @@ def generate_samples(config):
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
                         out = model.generate_and_print(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
-                        print("-"*30)
+                        # Fit
+                        if config.fit_xrd:
+                            try:
+                                output = decode(out[0].tolist())
+
+                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output)
+                            except Exception as e:
+                                raise e
+                                rmsd = 'NaN'
+                            print()
+                            print(f'RMSD: {rmsd}')
+                        #print("-"*30)
                         print()
                     else:
                         out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
@@ -191,6 +265,7 @@ class SampleDefaults:
     debug_max: int = None
     post_process: bool = False
     encode_prefix: bool = False
+    fit_xrd: bool = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -210,6 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug_max", type=int)
     parser.add_argument("--post_process", action='store_true')
     parser.add_argument("--encode_prefix", action='store_true')
+    parser.add_argument("--fit_xrd", action='store_true')
     args = parser.parse_args()
 
     config = SampleDefaults()

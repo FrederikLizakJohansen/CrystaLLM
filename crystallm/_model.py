@@ -49,6 +49,7 @@ class GPTConfig:
     encode_prefix: bool = False
     interleave_prefix: bool = False
     stacked_prefix: bool = False
+    fixed_length_prefix: bool = False
 
 
 class LayerNorm(nn.Module):
@@ -219,7 +220,11 @@ class GPT(nn.Module):
                 self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
             else:
                 if config.interleave_prefix:
+                    self.prefix_ff = nn.Linear(config.prefix_size * 2, config.n_embd)
+                elif config.stacked_prefix:
                     self.prefix_ff = nn.Linear(2, config.n_embd)
+                elif config.fixed_length_prefix:
+                    self.prefix_ff = nn.Linear(config.prefix_size, config.n_embd)
                 else:
                     self.prefix_x_emb = nn.Linear(config.prefix_size, config.n_embd)
                     self.prefix_y_emb = nn.Linear(config.prefix_size, config.n_embd)
@@ -269,6 +274,23 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
+    def create_fixed_length_prefix(self, prefix_x, prefix_y, xmin, xmax, num_entries, device):
+        batch_size = prefix_x.shape[0]
+        output_tensor = torch.zeros((batch_size, num_entries), dtype=torch.float32).to(device=device)
+
+        for i in range(batch_size):
+            # Nomrlize prefix x to the range [0, num_entries-1]
+            norm_x = ((prefix_x[i] - xmin) / (xmax - xmin) * (num_entries-1)).long()
+
+            # Ensure indicies are within valid range
+            norm_x = torch.clamp(norm_x, 0, num_entries-1)
+
+            # Place prefix_y in the tensor
+            output_tensor[i, norm_x] = prefix_y[i]
+
+        return output_tensor
+
+
     def forward(self, idx, prefix_x, prefix_y, targets=None, mask_id=142):
         device = idx.device
         b, t = idx.size()
@@ -300,6 +322,9 @@ class GPT(nn.Module):
                     for i, p in enumerate(prefix_stacked):
                         prefix[i] = torch.sum(self.prefix_ff(p))
                     prefix = self.prefix_drop(prefix).unsqueeze(1)
+                elif self.config.fixed_length_prefix:
+                    prefix_fixed = self.create_fixed_length_prefix(prefix_x, prefix_y, 0, 10, self.config.prefix_size, device)
+                    prefix = self.prefix_drop(self.prefix_ff(prefix_fixed)).unsqueeze(1)
                 else:
                     prefix_x_emb = F.relu(self.prefix_x_emb(prefix_x))
                     prefix_y_emb = F.relu(self.prefix_y_emb(prefix_y))

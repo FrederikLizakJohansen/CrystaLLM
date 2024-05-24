@@ -5,6 +5,7 @@ https://github.com/karpathy/nanoGPT/blob/eba36e84649f3c6d840a93092cb779a260544d0
 import sys
 sys.path.append(".")
 import os
+import copy
 from dataclasses import dataclass
 from typing import Union
 import math
@@ -50,6 +51,7 @@ class TrainDefaults:
     encode_prefix: bool = False
     interleave_prefix: bool = False
     stacked_prefix: bool = False
+    fixed_length_prefix: bool = False
     prefix_x_vocab_size: int = 1000
     prefix_y_vocab_size: int = 1000
     prefix_size: int = 100
@@ -85,6 +87,9 @@ class TrainDefaults:
     compile: bool = True  # use PyTorch 2.0 to compile the model to be faster
     underrep_p: float = 0.0
     validate: bool = False  # whether to evaluate the model using the validation set
+
+    # Early stopping
+    early_stopping_patience: int = 5
 
 
 def read_start_indices(
@@ -145,12 +150,13 @@ if __name__ == "__main__":
 
         scattering_type = meta['scattering_type']
 
-        print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found cif_size = {cif_size} (inside {meta_path})", flush=True)
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
+        
+        print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
+        print(f"Found prefix_size = {prefix_size} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
@@ -231,12 +237,16 @@ if __name__ == "__main__":
             return x, y, prefix_x, prefix_y, sample_idx
 
     iter_num = 0
-    best_val_loss = 1e9
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
+    best_optimizer_state = None
 
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
                       bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
                       prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size, use_lora=C.use_lora, use_prefix=C.use_prefix,
-                      lora_rank=C.lora_rank, encode_prefix=C.encode_prefix)
+                      lora_rank=C.lora_rank, encode_prefix=C.encode_prefix, interleave_prefix=C.interleave_prefix, stacked_prefix=C.stacked_prefix,
+                      fixed_length_prefix=C.fixed_length_prefix)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:
@@ -370,10 +380,14 @@ if __name__ == "__main__":
                 print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 best_val_loss = losses["val"] if C.validate else 0.
+                best_model_state = copy.deepcopy(model.state_dict())
+                best_optimizer_state = copy.deepcopy(optimizer.state_dict())
                 if iter_num > 0:
                     checkpoint = {
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
+                        "best_model": best_model_state,
+                        "best_optimizer": best_optimizer_state,
                         "model_args": model_args,
                         "iter_num": iter_num,
                         "best_val_loss": best_val_loss,
@@ -384,6 +398,13 @@ if __name__ == "__main__":
                     }
                     print(f"saving checkpoint to {C.out_dir}...", flush=True)
                     torch.save(checkpoint, os.path.join(C.out_dir, "ckpt.pt"))
+            else:
+                patience_counter += 1
+
+            if patience_counter >= C.early_stopping_patience:
+                print(f"Early stopping triggered after {iter_num} iterations")
+                break
+
         if iter_num == 0 and C.eval_only:
             break
 
