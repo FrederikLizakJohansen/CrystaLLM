@@ -141,36 +141,36 @@ if __name__ == "__main__":
             meta = pickle.load(f)
 
         # Load meta data
-        cif_size = meta['cif_size']
+        #cif_size = meta['cif_size']
         cif_vocab_size = meta['cif_vocab_size']
 
-        prefix_size = meta['prefix_size']
-        prefix_x_vocab_size = meta['prefix_x_vocab_size']
-        prefix_y_vocab_size = meta['prefix_y_vocab_size']
+        #prefix_size = meta['prefix_size']
+        #prefix_x_vocab_size = meta['prefix_x_vocab_size']
+        #prefix_y_vocab_size = meta['prefix_y_vocab_size']
 
         scattering_type = meta['scattering_type']
 
-        print(f"Found cif_size = {cif_size} (inside {meta_path})", flush=True)
+        #print(f"Found cif_size = {cif_size} (inside {meta_path})", flush=True)
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
         
-        print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
-        print(f"Found prefix_size = {prefix_size} (inside {meta_path})", flush=True)
+        #print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
+        #print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
+        #print(f"Found prefix_size = {prefix_size} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
 
-    if C.encode_prefix:
-        prefix_x_train_data = np.memmap(os.path.join(C.dataset, "prefix_x_train.bin"), dtype=np.uint16, mode="r")
-        prefix_y_train_data = np.memmap(os.path.join(C.dataset, "prefix_y_train.bin"), dtype=np.uint16, mode="r")
-        prefix_x_val_data = np.memmap(os.path.join(C.dataset, "prefix_x_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-        prefix_y_val_data = np.memmap(os.path.join(C.dataset, "prefix_y_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    else:
-        prefix_x_train_data = np.load(os.path.join(C.dataset, "prefix_x_cont_train.npy"), mmap_mode="r")
-        prefix_y_train_data = np.load(os.path.join(C.dataset, "prefix_y_cont_train.npy"), mmap_mode="r")
-        prefix_x_val_data = np.load(os.path.join(C.dataset, "prefix_x_cont_val.npy"), mmap_mode="r") if C.validate else None
-        prefix_y_val_data = np.load(os.path.join(C.dataset, "prefix_y_cont_val.npy"), mmap_mode="r") if C.validate else None
+    #if C.encode_prefix:
+    #    prefix_x_train_data = np.memmap(os.path.join(C.dataset, "prefix_x_train.bin"), dtype=np.uint16, mode="r")
+    #    prefix_y_train_data = np.memmap(os.path.join(C.dataset, "prefix_y_train.bin"), dtype=np.uint16, mode="r")
+    #    prefix_x_val_data = np.memmap(os.path.join(C.dataset, "prefix_x_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    #    prefix_y_val_data = np.memmap(os.path.join(C.dataset, "prefix_y_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    #else:
+    #    prefix_x_train_data = np.load(os.path.join(C.dataset, "prefix_x_cont_train.npy"), mmap_mode="r")
+    #    prefix_y_train_data = np.load(os.path.join(C.dataset, "prefix_y_cont_train.npy"), mmap_mode="r")
+    #    prefix_x_val_data = np.load(os.path.join(C.dataset, "prefix_x_cont_val.npy"), mmap_mode="r") if C.validate else None
+    #    prefix_y_val_data = np.load(os.path.join(C.dataset, "prefix_y_cont_val.npy"), mmap_mode="r") if C.validate else None
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -194,47 +194,65 @@ if __name__ == "__main__":
     )
     
     def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False):
-        # CIFs
+
         data = train_data if split == "train" else val_data
 
-        # Prefix
-        prefix_x_data = prefix_x_train_data if split == "train" else prefix_x_val_data
-        prefix_y_data = prefix_y_train_data if split == "train" else prefix_y_val_data
+        ix = torch.randint(len(data) - C.block_size, (C.batch_size,))
 
-        # Choose training samples
-        num_data = len(data) // cif_size
-        sample_idx = torch.randint(num_data, (batch_size,))
-
-        # Determine block limit
-        limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
-
-        x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size:sample_idx[i]*cif_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-        y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size + 1:sample_idx[i]*cif_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-
-        # Get prefix
-        if C.encode_prefix:
-            prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
-            prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
-        else:
-            prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i]).astype(np.float32)) for i in sample_idx])
-            prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i]).astype(np.float32)) for i in sample_idx])
-
+        x = torch.stack([torch.from_numpy((data[i:i + C.block_size]).astype(np.int64)) for i in ix])
+        y = torch.stack([torch.from_numpy((data[i+1:i +1 + C.block_size]).astype(np.int64)) for i in ix])
+        
         # Send to device
         if C.device == "cuda":
             x = x.pin_memory().to(C.device, non_blocking=True)
             y = y.pin_memory().to(C.device, non_blocking=True)
-            prefix_x = prefix_x.pin_memory().to(C.device, non_blocking=True)
-            prefix_y = prefix_y.pin_memory().to(C.device, non_blocking=True)
         else:
             x = x.to(C.device)
             y = y.to(C.device)
-            prefix_x = prefix_x.to(C.device)
-            prefix_y = prefix_y.to(C.device)
         
         if not return_sample_idx:
-            return x, y, prefix_x, prefix_y
+            return x, y
         else:
-            return x, y, prefix_x, prefix_y, sample_idx
+            return x, y, sample_idx
+
+        ## Prefix
+        #prefix_x_data = prefix_x_train_data if split == "train" else prefix_x_val_data
+        #prefix_y_data = prefix_y_train_data if split == "train" else prefix_y_val_data
+
+        ## Choose training samples
+        #num_data = len(data) // cif_size
+        #sample_idx = torch.randint(num_data, (batch_size,))
+
+        ## Determine block limit
+        #limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
+
+        #x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size:sample_idx[i]*cif_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+        #y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size + 1:sample_idx[i]*cif_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
+
+        ## Get prefix
+        #if C.encode_prefix:
+        #    prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
+        #    prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
+        #else:
+        #    prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i]).astype(np.float32)) for i in sample_idx])
+        #    prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i]).astype(np.float32)) for i in sample_idx])
+
+        ## Send to device
+        #if C.device == "cuda":
+        #    x = x.pin_memory().to(C.device, non_blocking=True)
+        #    y = y.pin_memory().to(C.device, non_blocking=True)
+        #    prefix_x = prefix_x.pin_memory().to(C.device, non_blocking=True)
+        #    prefix_y = prefix_y.pin_memory().to(C.device, non_blocking=True)
+        #else:
+        #    x = x.to(C.device)
+        #    y = y.to(C.device)
+        #    prefix_x = prefix_x.to(C.device)
+        #    prefix_y = prefix_y.to(C.device)
+        #
+        #if not return_sample_idx:
+        #    return x, y, prefix_x, prefix_y
+        #else:
+        #    return x, y, prefix_x, prefix_y, sample_idx
 
     iter_num = 0
     best_val_loss = float('inf')
@@ -242,9 +260,13 @@ if __name__ == "__main__":
     best_model_state = None
     best_optimizer_state = None
 
+    #model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
+    #                  bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
+    #                  prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size, use_lora=C.use_lora, use_prefix=C.use_prefix,
+    #                  lora_rank=C.lora_rank, encode_prefix=C.encode_prefix, interleave_prefix=C.interleave_prefix, stacked_prefix=C.stacked_prefix,
+    #                  fixed_length_prefix=C.fixed_length_prefix)
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
-                      bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
-                      prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size, use_lora=C.use_lora, use_prefix=C.use_prefix,
+                      bias=C.bias, vocab_size=None, dropout=C.dropout, use_lora=C.use_lora, use_prefix=C.use_prefix,
                       lora_rank=C.lora_rank, encode_prefix=C.encode_prefix, interleave_prefix=C.interleave_prefix, stacked_prefix=C.stacked_prefix,
                       fixed_length_prefix=C.fixed_length_prefix)
     if C.init_from == "scratch":
@@ -333,9 +355,9 @@ if __name__ == "__main__":
         for split, eval_iters in [("train", C.eval_iters_train), ("val", C.eval_iters_val)]:
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
-                X, Y, PREFIX_X, PREFIX_Y = get_batch(split)
+                X, Y = get_batch(split)
                 with ctx:
-                    logits, loss = model(X, PREFIX_X, PREFIX_Y, Y)
+                    logits, loss = model(X, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()
         model.train()
@@ -356,7 +378,7 @@ if __name__ == "__main__":
         return C.min_lr + coeff * (C.learning_rate - C.min_lr)
 
     # training loop
-    X, Y, PREFIX_X, PREFIX_Y = get_batch("train")
+    X, Y = get_batch("train")
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     running_mfu = -1.0
@@ -413,9 +435,9 @@ if __name__ == "__main__":
         small_step_pbar = tqdm(desc='Accumulating losses...', total=C.gradient_accumulation_steps, leave=False, disable=not C.accumulative_pbar)
         for micro_step in range(C.gradient_accumulation_steps):
             with ctx:
-                logits, loss = model(X, PREFIX_X, PREFIX_Y, Y)
+                logits, loss = model(X, Y)
             # immediately async prefetch next batch while model is doing the forward pass on the GPU
-            X, Y, PREFIX_X, PREFIX_Y = get_batch("train")
+            X, Y = get_batch("train")
             # backward pass, with gradient scaling if training in fp16
             scaler.scale(loss).backward()
             small_step_pbar.update(1)

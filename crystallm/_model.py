@@ -291,7 +291,7 @@ class GPT(nn.Module):
         return output_tensor
 
 
-    def forward(self, idx, prefix_x, prefix_y, targets=None, mask_id=142):
+    def forward(self, idx, targets=None, mask_id=142):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -434,7 +434,7 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, prefix_x, prefix_y, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -450,7 +450,8 @@ class GPT(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond, prefix_x, prefix_y)
+            # TODO INSERT PREFIX
+            logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
@@ -474,7 +475,7 @@ class GPT(nn.Module):
         return idx
     
     @torch.no_grad()
-    def generate_and_print(self, idx, prefix_x, prefix_y, max_new_tokens, temperature=1.0, top_k=None):
+    def generate_and_print(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -494,8 +495,9 @@ class GPT(nn.Module):
         for i in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            # TODO INSERT PREFIX
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond, prefix_x, prefix_y)
+            logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
