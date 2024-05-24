@@ -1,5 +1,5 @@
-out_dir: 'debug_v1_test'
-eval_interval: 10  # how often to evaluate against the validation set
+out_dir: 'v1_100k'
+eval_interval: 250  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/mp_test'
+dataset: 'datasets/v1_train_100k'
 batch_size: 32
 block_size: 512
 
@@ -26,8 +26,8 @@ n_embd: 512
 dropout: 0.0
 
 learning_rate: 5e-3
-max_iters: 500
-lr_decay_iters: 500
+max_iters: 100_000
+lr_decay_iters: 100_000
 min_lr: 1e-4
 beta2: 0.99
 
@@ -35,6 +35,7 @@ warmup_iters: 100
 
 # Prefix
 use_prefix: True
+encode_prefix: False
 
 # LoRA
 use_lora: False

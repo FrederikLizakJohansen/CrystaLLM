@@ -117,6 +117,7 @@ def get_reflections(cif_content, num_points, lower_limit = None, pl=False):
                 q = np.pad(q, (padding_needed, 0), mode='constant', constant_values=0)
                 I = np.pad(I, (padding_needed, 0), mode='constant', constant_values=0)
     except Exception as e:
+        print(e)
         return
 
     return q, I
@@ -255,7 +256,10 @@ def prepare_split(
 
             # Prefix
             if config.prefix_method == 'reflections':
-                prefix_size = len(get_reflections(symm_cif, None, lower_limit=config.lower_limit)[0])
+                reflections = get_reflections(symm_cif, None, lower_limit=config.lower_limit)
+                if reflections is None:
+                    continue
+                prefix_size = len(reflections[0])
             else:
                 prefix_size = config.prefix_size
             prefix_sizes.append(prefix_size)
