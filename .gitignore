@@ -177,3 +177,4 @@ tokens*/
 **/*.ipynb
 **/*.ckpt
 XRD_VS_EMPTY/
+**/*.swp
