@@ -276,6 +276,9 @@ if __name__ == "__main__":
         model_args["vocab_size"] = cif_vocab_size if cif_vocab_size is not None else 371
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
+        train_losses = []
+        val_losses = []
+        epoch_losses = []
     elif C.init_from == "resume":
         print(f"Resuming training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
@@ -296,6 +299,9 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
+        train_losses = checkpoint["train_losses"]
+        val_losses = checkpoint["val_losses"]
+        epoch_losses = checkpoint["epoch_losses"]
     elif C.init_from == "finetune":
         print(f"Finetuning training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
@@ -316,6 +322,14 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict, strict=False)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
+        try:
+            train_losses = checkpoint["train_losses"]
+            val_losses = checkpoint["val_losses"]
+            epoch_losses = checkpoint["epoch_losses"]
+        except:
+            train_losses = []
+            val_losses = []
+            epoch_losses = []
 
         for name, param in model.named_parameters():
             if 'lora' in name:
@@ -382,9 +396,6 @@ if __name__ == "__main__":
     t0 = time.time()
     local_iter_num = 0  # number of iterations in the lifetime of this process
     running_mfu = -1.0
-    train_losses = []
-    val_losses = []
-    epoch_losses = []
     while True:
 
         # determine and set the learning rate for this iteration

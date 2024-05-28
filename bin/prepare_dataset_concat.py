@@ -212,6 +212,7 @@ def process_cif(
     try:
         tokens = tokenizer.tokenize_cif(cif)
         new_line_id = tokenizer.encode("\n")
+        comma_id = tokenizer.encode(",")
         ids = tokenizer.encode(tokens)
         prefix_x, prefix_y = get_reflections(symm_cif, config.lower_limit)
         prefix_ids = []
@@ -219,6 +220,7 @@ def process_cif(
             px_id = tokenizer.encode(str(np.around(px,2)))
             py_id = tokenizer.encode(str(np.around(py,2)))
             prefix_ids.extend([i for i in px_id])
+            prefix_ids.extend(comma_id)
             prefix_ids.extend([i for i in py_id])
             prefix_ids.extend(new_line_id)
 

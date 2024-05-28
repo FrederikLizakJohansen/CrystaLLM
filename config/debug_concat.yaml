@@ -1,9 +1,9 @@
-out_dir: 'debug_concat'
+out_dir: 'debug_concat_fixed_finetune_smaller_lr'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'scratch'
+init_from: 'finetune'
 
 device: 'cuda'
 compile: True
@@ -25,10 +25,10 @@ n_head: 8
 n_embd: 512
 dropout: 0.0
 
-learning_rate: 5e-3
-max_iters: 500
-lr_decay_iters: 500
-min_lr: 1e-4
+learning_rate: 5e-5
+max_iters: 101_000
+lr_decay_iters: 101_000
+min_lr: 1e-5
 beta2: 0.99
 
 warmup_iters: 100
@@ -38,5 +38,5 @@ use_prefix: False
 encode_prefix: False
 
 # LoRA
-use_lora: False
+use_lora: True
 lora_rank: 4

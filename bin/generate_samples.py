@@ -107,7 +107,7 @@ def calculate_rmsd_cif(cif_content1, cif_content2):
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
     
-def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif):
+def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif, lower_limit=None):
                         
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
@@ -122,9 +122,17 @@ def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif):
     structure = parser.get_structures()[0]
     pattern = calc.get_pattern(structure)
 
+    if lower_limit is not None:
+        mask = pattern.y >= lower_limit
+        x = pattern.x[mask]
+        y = pattern.y[mask]
+    else:
+        x = pattern.x
+        y = pattern.y
+
     # Unpack
     pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
-    pos2, intens2 = pattern.x, pattern.y
+    pos2, intens2 = x, y
 
     # Interpolate intensities to a common set of positions
     common_positions = np.union1d(pos1, pos2)
@@ -144,7 +152,7 @@ def generate_samples(config):
     meta_path = os.path.join(config.dataset_dir, "meta.pkl")
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
-    prefix_size = meta['prefix_size']
+    #prefix_size = meta['prefix_size']
     
     # Init tokenizer
     tokenizer = CIFTokenizer()
@@ -202,29 +210,39 @@ def generate_samples(config):
                 print("-"*30)
                 for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
                     input_string = ["data_"]
-                    if config.prompt != "":
-                        input_string = input_string + tokenizer.tokenize_cif(config.prompt)
+                    new_line_id = encode("\n")
+                    prefix_ids = []
+                    for px, py in zip(prefix_x, prefix_y):
+                        if px != 0:
+                            px_id = str(np.around(px.cpu().numpy(),2))
+                            py_id = str(np.around(py.cpu().numpy(),2))
+                            prefix_ids.extend([i for i in px_id])
+                            prefix_ids.extend(",")
+                            prefix_ids.extend([i for i in py_id])
+                            prefix_ids.extend("\n")
+
+                    input_string = prefix_ids + input_string
 
                     # Generate
-                    start_index = torch.tensor(tokenizer.encode(input_string)).to(device='cuda').unsqueeze(0)
+                    start_index = torch.tensor(encode(input_string)).to(device='cuda').unsqueeze(0)
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
-                        out = model.generate_and_print(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate_and_print(start_index, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                         # Fit
                         if config.fit_xrd:
                             try:
                                 output = decode(out[0].tolist())
 
-                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output)
+                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output, lower_limit=config.lower_limit)
                             except Exception as e:
-                                raise e
+                                #raise e
                                 rmsd = 'NaN'
                             print()
                             print(f'RMSD: {rmsd}')
                         #print("-"*30)
                         print()
                     else:
-                        out = model.generate(start_index, prefix_x.unsqueeze(0), prefix_y.unsqueeze(0), max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate(start_index, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
 
                     # Postprocess
@@ -266,6 +284,7 @@ class SampleDefaults:
     post_process: bool = False
     encode_prefix: bool = False
     fit_xrd: bool = False
+    lower_limit: float = 5.0
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -286,6 +305,7 @@ if __name__ == "__main__":
     parser.add_argument("--post_process", action='store_true')
     parser.add_argument("--encode_prefix", action='store_true')
     parser.add_argument("--fit_xrd", action='store_true')
+    parser.add_argument("--lower_limit", type=float)
     args = parser.parse_args()
 
     config = SampleDefaults()
