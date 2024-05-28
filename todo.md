@@ -5,10 +5,11 @@
 ### Cleaning
 - [x] Clip
 - [x] RejsUd-ballade
-- [ ] Delete all but two branches, have them be called: "CrystaLLM-prefix-encoder" and "CrystaLLM-prefix-prompt"
+- [x] Delete all but two branches, have them be called: "CrystaLLM-prefix-encoder" and "CrystaLLM-prefix-prompt"
+- [x] Leave "LoRA" branch for good measure.
 - [ ] Delete all the multiple folders with CrystaLLM; one folder only!
-- [ ] Have a seperate folder for all the models; make the script save all models in this folder
-- [ ] Delete any unnecessary files or folders from the repo.
+- [x] Have a seperate folder for all the models; make the script save all models in this folder (do manually)
+- [x] Delete any unnecessary files or folders from the repo.
 - [ ] Go through all the code and delete blocks of unnecessary code.
 - [ ] Organize the notebook, and make a seperate notebook for testing and leave this one for evaluation.
 
