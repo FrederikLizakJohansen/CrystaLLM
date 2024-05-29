@@ -45,12 +45,8 @@ class GPTConfig:
     bias: bool = True
     lora_rank: int = 4
     use_lora: bool = False
-    use_prefix: bool = True
-    encode_prefix: bool = False
-    interleave_prefix: bool = False
-    stacked_prefix: bool = False
-    fixed_length_prefix: bool = False
-
+    lora_mlp: bool = False
+    lora_proj: bool = False
 
 class LayerNorm(nn.Module):
 
@@ -93,9 +89,10 @@ class CausalSelfAttention(nn.Module):
         # LoRA
         if config.use_lora:
             self.lora_attn = LoRALayer(config.n_embd, 2 * config.n_embd, rank=config.lora_rank)
-            #self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
+            if config.lora_proj:
+                self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
-    def forward(self, x: Tensor, attn_mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Applies causal self-attention to the given tensor,
         with a mask to prevent attention to future positions.
@@ -126,19 +123,16 @@ class CausalSelfAttention(nn.Module):
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            if attn_mask is not None:
-                att = att.masked_fill(attn_mask[:, None, None, :] == 0, float("-inf"))
-
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
-        #if not self.config.use_lora:
-        y = self.resid_dropout(self.c_proj(y))
-        #else:
-        #    y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
+        if self.config.use_lora and self.config.lora_proj:
+            y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
+        else:
+            y = self.resid_dropout(self.c_proj(y))
         return y
 
 
@@ -164,23 +158,25 @@ class MLP(nn.Module):
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
-        #if config.use_lora:
-        #    self.lora_fc = LoRALayer(config.n_embd, 4 * config.n_embd, rank=config.lora_rank)
-        #    self.lora_proj = LoRALayer(4 * config.n_embd, config.n_embd, rank=config.lora_rank)
+        if config.use_lora:
+            if config.lora_mlp:
+                self.lora_fc = LoRALayer(config.n_embd, 4 * config.n_embd, rank=config.lora_rank)
+            if config.lora_proj:
+                self.lora_proj = LoRALayer(4 * config.n_embd, config.n_embd, rank=config.lora_rank)
 
     def forward(self, x: Tensor) -> Tensor:
-        #if not self.config.use_lora:
-        x = self.c_fc(x)
-        #else:
-        #    x = self.c_fc(x) + self.lora_fc(x)
+        if self.config.use_lora and self.config.lora_mlp:
+            x = self.c_fc(x) + self.lora_fc(x)
+        else:
+            x = self.c_fc(x)
         x = gelu(x)
-        #if not self.config.use_lora:
-        x = self.c_proj(x)
-        #else:
-        #    x = self.c_proj(x) + self.lora_proj(x)
+        if self.config.use_lora and self.config.lora_proj:
+            x = self.c_proj(x) + self.lora_proj(x)
+        else:
+            x = self.c_proj(x)
+        x = gelu(x)
         x = self.dropout(x)
         return x
-
 
 class Block(nn.Module):
 
@@ -191,7 +187,7 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor, attn_mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass for the Transformer Block module. A Block module includes causal self-attention,
         layer normalization, and MLP, and residual connections.
@@ -199,7 +195,7 @@ class Block(nn.Module):
         :param x: input to the transformer block
         :returns: output of the transformer block, with the same shape as in the input
         """
-        x = x + self.attn(self.ln_1(x), attn_mask=attn_mask)
+        x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -211,23 +207,6 @@ class GPT(nn.Module):
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
-
-        if config.use_prefix:
-            self.prefix_drop = nn.Dropout(config.dropout)
-
-            if config.encode_prefix:
-                self.prefix_x_emb = nn.Embedding(config.prefix_x_vocab_size, config.n_embd)
-                self.prefix_y_emb = nn.Embedding(config.prefix_y_vocab_size, config.n_embd)
-            else:
-                if config.interleave_prefix:
-                    self.prefix_ff = nn.Linear(config.prefix_size * 2, config.n_embd)
-                elif config.stacked_prefix:
-                    self.prefix_ff = nn.Linear(2, config.n_embd)
-                elif config.fixed_length_prefix:
-                    self.prefix_ff = nn.Linear(config.prefix_size, config.n_embd)
-                else:
-                    self.prefix_x_emb = nn.Linear(config.prefix_size, config.n_embd)
-                    self.prefix_y_emb = nn.Linear(config.prefix_size, config.n_embd)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
@@ -291,7 +270,7 @@ class GPT(nn.Module):
         return output_tensor
 
 
-    def forward(self, idx, targets=None, mask_id=142):
+    def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -301,43 +280,11 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
-
-        # Attention mask for newline
-        #attn_mask = idx != mask_id
-        attn_mask = None
-        
-        # Forward the prefix
-        if self.config.use_prefix:
-            if self.config.encode_prefix:
-                prefix_x_emb = self.prefix_x_emb(prefix_x) 
-                prefix_y_emb = self.prefix_y_emb(prefix_y)
-                prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb)
-            else:
-                if self.config.interleave_prefix:
-                    prefix_interleaved = torch.stack((prefix_x, prefix_y), dim=2).view(prefix_x.size(0), -1)
-                    prefix = self.prefix_drop(self.prefix_ff(prefix_interleaved)).unsqueeze(1)
-                elif self.config.stacked_prefix:
-                    prefix_stacked = torch.stack((prefix_x, prefix_y), dim=2)
-                    prefix = torch.zeros((b, self.config.n_embd), dtype=torch.float16).to(device=device)
-                    for i, p in enumerate(prefix_stacked):
-                        prefix[i] = torch.sum(self.prefix_ff(p))
-                    prefix = self.prefix_drop(prefix).unsqueeze(1)
-                elif self.config.fixed_length_prefix:
-                    prefix_fixed = self.create_fixed_length_prefix(prefix_x, prefix_y, 0, 10, self.config.prefix_size, device)
-                    prefix = self.prefix_drop(self.prefix_ff(prefix_fixed)).unsqueeze(1)
-                else:
-                    prefix_x_emb = F.relu(self.prefix_x_emb(prefix_x))
-                    prefix_y_emb = F.relu(self.prefix_y_emb(prefix_y))
-                    prefix = self.prefix_drop(prefix_x_emb + prefix_y_emb).unsqueeze(1)
-                
-            x = torch.concat((prefix, x), dim=1)
         
         for block in self.transformer.h:
-            x = block(x, attn_mask=attn_mask)
+            x = block(x)
 
         x = self.transformer.ln_f(x)
-        if self.config.use_prefix:
-            x = x[:,prefix.shape[1]:,:]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss

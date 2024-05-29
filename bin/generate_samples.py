@@ -144,6 +144,9 @@ def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif, lower_limit=None):
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
 
 def generate_samples(config):
+    
+    ptdtype = {"float32": torch.float32, "bffloat16": torch.bfloat16, "float16": torch.float16}[config.dtype]
+    ctx = nullcontext() if config.device == "cpu" else torch.amp.autocast(device_type=config.device)
 
     # Load Model
     model = load_model(config)
@@ -159,33 +162,18 @@ def generate_samples(config):
     encode = tokenizer.encode
     decode = tokenizer.decode
 
-    # Get Prefix
-    if config.encode_prefix:
-        prefix_x_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_x_{config.split}.bin"), dtype=np.uint16, mode="r")
-        prefix_y_ids = np.memmap(os.path.join(config.dataset_dir, f"prefix_y_{config.split}.bin"), dtype=np.uint16, mode="r")
-        n_data = len(prefix_x_ids) // prefix_size
-    else:
-        prefix_x_cont = np.load(os.path.join(config.dataset_dir, f"prefix_x_cont_{config.split}.npy"), mmap_mode="r")
-        prefix_y_cont = np.load(os.path.join(config.dataset_dir, f"prefix_y_cont_{config.split}.npy"), mmap_mode="r")
-        n_data = prefix_x_cont.shape[0]
+    # Get data and start indices
+    data = np.memmap(os.path.join(config.dataset_dir, f"{config.split}.bin"), dtype=np.uint16, mode="r")
+    start_indices = np.memmap(os.path.join(config.dataset_dir, f"start_indices_{config.split}.bin"), dtype=np.uint32, mode="r")
 
     # Get cifs fnames
     with open(os.path.join(config.dataset_dir, f"fnames_{config.split}.txt"), 'r') as f:
         cif_paths = [line.strip() for line in f.readlines()]
 
     # Order and stack conditioning data
+    n_data = len(cif_paths)
     if config.n_data > 0:
         n_data = min(n_data, config.n_data)
-
-    if config.encode_prefix:
-        prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
-        prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in range(n_data)]).to(config.device)
-        #prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.float32)) for i in range(n_data)]).to(config.device)
-        #prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_ids[i*prefix_size:(i+1)*prefix_size]).astype(np.float32)) for i in range(n_data)]).to(config.device)
-    else:
-        prefix_x_tensors = torch.stack([torch.from_numpy((prefix_x_cont[i]).astype(np.float32)) for i in range(n_data)]).to(config.device)
-        prefix_y_tensors = torch.stack([torch.from_numpy((prefix_y_cont[i]).astype(np.float32)) for i in range(n_data)]).to(config.device)
-
     cif_paths = cif_paths[:n_data]
 
     # Check out path
@@ -194,55 +182,62 @@ def generate_samples(config):
     # Debug max
     if config.debug_max is None:
         config.debug_max = n_data
+
+    # Get index of "data_"
+    cif_start_id = tokenizer.token_to_id["data_"]
     
     # Generate structures and cif strings
     with torch.no_grad():
         with ctx:
             model.eval()
             generated_cifs = []
-            for i, (fname, prefix_x, prefix_y) in tqdm(enumerate(zip(cif_paths, prefix_x_tensors, prefix_y_tensors)), total=len(cif_paths), desc='Generating CIFs...', leave=False, disable=print_to_consol):
+            for i, (fname, start_idx) in tqdm(enumerate(zip(cif_paths, start_indices)), total=len(cif_paths), desc='Generating CIFs...', leave=False, disable=print_to_consol):
                 if i >= config.debug_max:
                     break
                 gens = []
+
+                # Print filename
                 filename = fname.split(".")[0]
                 print("-"*30)
                 print(filename)
                 print("-"*30)
+
+                # Repeats
                 for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
-                    input_string = ["data_"]
-                    new_line_id = encode("\n")
-                    prefix_ids = []
-                    for px, py in zip(prefix_x, prefix_y):
-                        if px != 0:
-                            px_id = str(np.around(px.cpu().numpy(),2))
-                            py_id = str(np.around(py.cpu().numpy(),2))
-                            prefix_ids.extend([i for i in px_id])
-                            prefix_ids.extend(",")
-                            prefix_ids.extend([i for i in py_id])
-                            prefix_ids.extend("\n")
 
-                    input_string = prefix_ids + input_string
+                    print(start_idx)
+                    print(data[start_idx:start_idx+config.cond_window])
 
-                    # Generate
-                    start_index = torch.tensor(encode(input_string)).to(device='cuda').unsqueeze(0)
+                    # Get sliced data from starting index and "max_len" ahead
+                    sliced_data = data[start_idx:start_idx+config.cond_window]
+
+                    # Find the index of the first occurance of cif_start_id
+                    try:
+                        end_index = np.where(sliced_data == cif_start_id)[0][0]
+                    except IndexError:
+                        raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
+
+                    # Extract the ids, including the starting id (+1)
+                    cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device='cuda').unsqueeze(0)
+                    
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
-                        out = model.generate_and_print(start_index, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate_and_print(cond_ids, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+
                         # Fit
                         if config.fit_xrd:
                             try:
                                 output = decode(out[0].tolist())
-
-                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output, lower_limit=config.lower_limit)
+                                # TODO
+                                #rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output, lower_limit=config.lower_limit)
                             except Exception as e:
                                 #raise e
                                 rmsd = 'NaN'
                             print()
                             print(f'RMSD: {rmsd}')
-                        #print("-"*30)
                         print()
                     else:
-                        out = model.generate(start_index, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate(cond_ids, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
                     output = decode(out[0].tolist())
 
                     # Postprocess
@@ -285,6 +280,7 @@ class SampleDefaults:
     encode_prefix: bool = False
     fit_xrd: bool = False
     lower_limit: float = 5.0
+    cond_window: int = 200
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -319,8 +315,6 @@ if __name__ == "__main__":
     assert config.model_dir != "", "[model_dir] cannot be empty"
     assert config.dataset_dir != "", "[dataset_dir] cannot be empty"
 
-    ptdtype = {"float32": torch.float32, "bffloat16": torch.bfloat16, "float16": torch.float16}[config.dtype]
-    ctx = nullcontext() if config.device == "cpu" else torch.amp.autocast(device_type=config.device)
 
     # Run training script
     generate_samples(config)

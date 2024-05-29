@@ -44,20 +44,12 @@ class TrainDefaults:
     gradient_accumulation_steps: int = 40  # used to simulate larger batch sizes
     batch_size: int = 64  # if gradient_accumulation_steps > 1, this is the micro-batch size
     block_size: int = 2048  # context of up to `block_size` previous characters
-    accumulative_pbar: bool = True
-
-    # Prefix
-    use_prefix: bool = True
-    encode_prefix: bool = False
-    interleave_prefix: bool = False
-    stacked_prefix: bool = False
-    fixed_length_prefix: bool = False
-    prefix_x_vocab_size: int = 1000
-    prefix_y_vocab_size: int = 1000
-    prefix_size: int = 100
+    accumulative_pbar: bool = False
 
     # LoRA
-    use_lora: bool = True
+    use_lora: bool = False
+    lora_proj: bool = False
+    lora_mlp: bool = False
     lora_rank: int = 2
 
     # model
@@ -87,6 +79,7 @@ class TrainDefaults:
     compile: bool = True  # use PyTorch 2.0 to compile the model to be faster
     underrep_p: float = 0.0
     validate: bool = False  # whether to evaluate the model using the validation set
+    validate_generation: bool = False
 
     # Early stopping
     early_stopping_patience: int = 5
@@ -140,37 +133,14 @@ if __name__ == "__main__":
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
 
-        # Load meta data
-        #cif_size = meta['cif_size']
         cif_vocab_size = meta['cif_vocab_size']
-
-        #prefix_size = meta['prefix_size']
-        #prefix_x_vocab_size = meta['prefix_x_vocab_size']
-        #prefix_y_vocab_size = meta['prefix_y_vocab_size']
-
         scattering_type = meta['scattering_type']
 
-        #print(f"Found cif_size = {cif_size} (inside {meta_path})", flush=True)
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
-        
-        #print(f"Found prefix_x_vocab_size = {prefix_x_vocab_size} (inside {meta_path})", flush=True)
-        #print(f"Found prefix_y_vocab_size = {prefix_y_vocab_size} (inside {meta_path})", flush=True)
-        #print(f"Found prefix_size = {prefix_size} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-
-    #if C.encode_prefix:
-    #    prefix_x_train_data = np.memmap(os.path.join(C.dataset, "prefix_x_train.bin"), dtype=np.uint16, mode="r")
-    #    prefix_y_train_data = np.memmap(os.path.join(C.dataset, "prefix_y_train.bin"), dtype=np.uint16, mode="r")
-    #    prefix_x_val_data = np.memmap(os.path.join(C.dataset, "prefix_x_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    #    prefix_y_val_data = np.memmap(os.path.join(C.dataset, "prefix_y_val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    #else:
-    #    prefix_x_train_data = np.load(os.path.join(C.dataset, "prefix_x_cont_train.npy"), mmap_mode="r")
-    #    prefix_y_train_data = np.load(os.path.join(C.dataset, "prefix_y_cont_train.npy"), mmap_mode="r")
-    #    prefix_x_val_data = np.load(os.path.join(C.dataset, "prefix_x_cont_val.npy"), mmap_mode="r") if C.validate else None
-    #    prefix_y_val_data = np.load(os.path.join(C.dataset, "prefix_y_cont_val.npy"), mmap_mode="r") if C.validate else None
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -215,60 +185,15 @@ if __name__ == "__main__":
         else:
             return x, y, sample_idx
 
-        ## Prefix
-        #prefix_x_data = prefix_x_train_data if split == "train" else prefix_x_val_data
-        #prefix_y_data = prefix_y_train_data if split == "train" else prefix_y_val_data
-
-        ## Choose training samples
-        #num_data = len(data) // cif_size
-        #sample_idx = torch.randint(num_data, (batch_size,))
-
-        ## Determine block limit
-        #limit = cif_size - 1 if C.block_size >= cif_size else C.block_size
-
-        #x = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size:sample_idx[i]*cif_size+limit] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-        #y = torch.stack([torch.from_numpy(np.array([data[sample_idx[i]*cif_size + 1:sample_idx[i]*cif_size+limit + 1] for i in range(batch_size)], dtype=np.int64))]).squeeze(0)
-
-        ## Get prefix
-        #if C.encode_prefix:
-        #    prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
-        #    prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i*prefix_size:(i+1)*prefix_size]).astype(np.int64)) for i in sample_idx])
-        #else:
-        #    prefix_x = torch.stack([torch.from_numpy((prefix_x_data[i]).astype(np.float32)) for i in sample_idx])
-        #    prefix_y = torch.stack([torch.from_numpy((prefix_y_data[i]).astype(np.float32)) for i in sample_idx])
-
-        ## Send to device
-        #if C.device == "cuda":
-        #    x = x.pin_memory().to(C.device, non_blocking=True)
-        #    y = y.pin_memory().to(C.device, non_blocking=True)
-        #    prefix_x = prefix_x.pin_memory().to(C.device, non_blocking=True)
-        #    prefix_y = prefix_y.pin_memory().to(C.device, non_blocking=True)
-        #else:
-        #    x = x.to(C.device)
-        #    y = y.to(C.device)
-        #    prefix_x = prefix_x.to(C.device)
-        #    prefix_y = prefix_y.to(C.device)
-        #
-        #if not return_sample_idx:
-        #    return x, y, prefix_x, prefix_y
-        #else:
-        #    return x, y, prefix_x, prefix_y, sample_idx
-
     iter_num = 0
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_state = None
     best_optimizer_state = None
+    checkpoint = None
 
-    #model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
-    #                  bias=C.bias, vocab_size=None, dropout=C.dropout, prefix_x_vocab_size = prefix_x_vocab_size, 
-    #                  prefix_y_vocab_size = prefix_y_vocab_size, prefix_size = prefix_size, use_lora=C.use_lora, use_prefix=C.use_prefix,
-    #                  lora_rank=C.lora_rank, encode_prefix=C.encode_prefix, interleave_prefix=C.interleave_prefix, stacked_prefix=C.stacked_prefix,
-    #                  fixed_length_prefix=C.fixed_length_prefix)
     model_args = dict(n_layer=C.n_layer, n_head=C.n_head, n_embd=C.n_embd, block_size=C.block_size,
-                      bias=C.bias, vocab_size=None, dropout=C.dropout, use_lora=C.use_lora, use_prefix=C.use_prefix,
-                      lora_rank=C.lora_rank, encode_prefix=C.encode_prefix, interleave_prefix=C.interleave_prefix, stacked_prefix=C.stacked_prefix,
-                      fixed_length_prefix=C.fixed_length_prefix)
+                      bias=C.bias, vocab_size=None, dropout=C.dropout, use_lora=C.use_lora, lora_rank=C.lora_rank)
     if C.init_from == "scratch":
         print("Initializing a new model from scratch...", flush=True)
         if cif_vocab_size is None:
@@ -276,9 +201,7 @@ if __name__ == "__main__":
         model_args["vocab_size"] = cif_vocab_size if cif_vocab_size is not None else 371
         gptconf = GPTConfig(**model_args)
         model = GPT(gptconf)
-        train_losses = []
-        val_losses = []
-        epoch_losses = []
+
     elif C.init_from == "resume":
         print(f"Resuming training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
@@ -299,9 +222,7 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
-        train_losses = checkpoint["train_losses"]
-        val_losses = checkpoint["val_losses"]
-        epoch_losses = checkpoint["epoch_losses"]
+
     elif C.init_from == "finetune":
         print(f"Finetuning training from {C.out_dir}...", flush=True)
         ckpt_path = os.path.join(C.out_dir, "ckpt.pt")
@@ -322,19 +243,9 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict, strict=False)
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
-        try:
-            train_losses = checkpoint["train_losses"]
-            val_losses = checkpoint["val_losses"]
-            epoch_losses = checkpoint["epoch_losses"]
-        except:
-            train_losses = []
-            val_losses = []
-            epoch_losses = []
 
         for name, param in model.named_parameters():
             if 'lora' in name:
-                param.requires_grad = True
-            elif 'prefix' in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -343,10 +254,26 @@ if __name__ == "__main__":
     else:
         raise Exception("[init_from] not recognized")
 
+    # Checkpoint metrics
+    metrics_variables = ["train_losses", "val_losses", "epoch_losses", "RMSD", "epoch_RMSD", "HDD", "epoch_HDD"]
+    if checkpoint is None:
+        metrics = {}
+        for key in metrics_variables:
+            metrics[key] = []
+    else:
+        metrics = {}
+        for key in metrics_variables:
+            try:
+                metrics[key] = checkpoint[key]
+                print(f"Loaded {key}.")
+            except:
+                metrics[key] = []
+                print(f"Could not find {key}, creating empty list")
+
     # crop down the model block size if desired, using model surgery
-    #if C.block_size < model.config.block_size:
-    #    model.crop_block_size(C.block_size)
-    #    model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
+    if C.block_size < model.config.block_size:
+        model.crop_block_size(C.block_size)
+        model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
     model.to(C.device)
 
     # initialize a GradScaler; if enabled=False scaler is a no-op
@@ -374,6 +301,25 @@ if __name__ == "__main__":
                     logits, loss = model(X, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()
+        model.train()
+        return out
+
+    # If generation is consistent, generate and validate on RMSD and HDD
+    @torch.no_grad()
+    def generation_loss():
+        out = {}
+        model.eval()
+
+        for split, gen_iters in [("train", C.gen_iters_train), ("val", C.gen_iters_val)]:
+            RMSDs = torch.zeros(gen_iters)
+            HDDs = torch.zeros(gen_iters)
+            for k in range(gen_iters):
+                
+                # TODO Sample a batch of CIFs
+                # TODO Sweep the ids and generate for everyting from 1 id provided to almost all.
+                # Then we can make a sort of waterfall plot from this!
+                break # TODO Remove
+
         model.train()
         return out
 
@@ -407,10 +353,26 @@ if __name__ == "__main__":
         if iter_num % C.eval_interval == 0:
             if C.validate:
                 losses = estimate_loss()
-                train_losses.append(losses["train"])
-                val_losses.append(losses["val"])
-                epoch_losses.append(iter_num)
+
+                # Metrics
+                metrics['train_losses'].append(losses['train'])
+                metrics['val_losses'].append(losses['val'])
+                metrics['epoch_losses'].append(iter_num)
                 print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
+
+            if C.validate_generation:
+                
+                gen_losses = generation_loss()
+
+                if gen_losses['RMSD'] is not None:
+                    metrics['RMSD'].append(gen_losses['RMSD'])
+                    metrics['epoch_RMSD'].append(iter_num)
+                    print(f"step {iter_num}: RMSD train {gen_losses['train']:.4f}, RMSD val {gen_losses['val']:.4f}", flush=True)
+                if gen_losses['HDD'] is not None:
+                    metrics['HDD'].append(gen_losses['HDD'])
+                    metrics['epoch_HDD'].append(iter_num)
+                    print(f"step {iter_num}: HDD train {gen_losses['train']:.4f}, HDD val {gen_losses['val']:.4f}", flush=True)
+
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 best_val_loss = losses["val"] if C.validate else 0.
                 best_model_state = copy.deepcopy(model.state_dict())
@@ -424,9 +386,7 @@ if __name__ == "__main__":
                         "model_args": model_args,
                         "iter_num": iter_num,
                         "best_val_loss": best_val_loss,
-                        "train_losses": train_losses,
-                        "val_losses": val_losses,
-                        "epoch_losses": epoch_losses,
+                        "metrics": metrics,
                         "config": dict(C),
                     }
                     print(f"saving checkpoint to {C.out_dir}...", flush=True)

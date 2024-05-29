@@ -75,6 +75,8 @@ class DefaultDatasetConfig:
 
     lower_limit: float = 5.0
 
+    exclude_cond: bool = False
+
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
 
@@ -214,23 +216,24 @@ def process_cif(
         new_line_id = tokenizer.encode("\n")
         comma_id = tokenizer.encode(",")
         ids = tokenizer.encode(tokens)
-        prefix_x, prefix_y = get_reflections(symm_cif, config.lower_limit)
-        prefix_ids = []
-        for px, py in zip(prefix_x, prefix_y):
-            px_id = tokenizer.encode(str(np.around(px,2)))
-            py_id = tokenizer.encode(str(np.around(py,2)))
-            prefix_ids.extend([i for i in px_id])
-            prefix_ids.extend(comma_id)
-            prefix_ids.extend([i for i in py_id])
-            prefix_ids.extend(new_line_id)
+    
+        if not config.exclude_cond:
+            prefix_x, prefix_y = get_reflections(symm_cif, config.lower_limit)
+            prefix_ids = []
+            for px, py in zip(prefix_x, prefix_y):
+                px_id = tokenizer.encode(str(np.around(px,2)))
+                py_id = tokenizer.encode(str(np.around(py,2)))
+                prefix_ids.extend([i for i in px_id])
+                prefix_ids.extend(comma_id)
+                prefix_ids.extend([i for i in py_id])
+                prefix_ids.extend(new_line_id)
 
-        ids = prefix_ids + ids + new_line_id + new_line_id
+            ids = prefix_ids + ids + new_line_id + new_line_id
 
-        return ids, fname
+        return ids, fname, len(ids)
     except Exception as e:
-        print(fname)
-        print(e)
-        return None, None
+        raise e
+        return None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
     args = [(config, cif) for cif in cifs]
@@ -241,12 +244,17 @@ def save_dataset_parallel(config, cifs, bin_prefix):
     ids = [i for sublist in ids for i in sublist]
     fnames = [res[1] for res in results if res[1] is not None]
     fnames = [i for sublist in fnames for i in sublist]
+    id_lens = [res[2] for res in results if res[2] is not None]
+    start_indices = np.array([0] + list(np.cumsum(id_lens)[:-1] + 1), dtype=np.uint32)
 
     print(f"Saving binary files for tag: {bin_prefix}")
 
     # Save CIF binary
     ids = np.array(ids, dtype=np.uint16)
     ids.tofile(os.path.join(config.dataset_path, bin_prefix + '.bin'))
+
+    # Save start indices
+    start_indices.tofile(os.path.join(config.dataset_path, 'start_indices_' + bin_prefix + '.bin'))
 
     # Save CIF fnames
     with open(os.path.join(config.dataset_path, 'fnames_' + bin_prefix + '.txt'), "w") as f:
@@ -265,6 +273,7 @@ if __name__ == "__main__":
     argparser.add_argument('--output', type=str)
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--lower_limit', type=float)
+    argparser.add_argument('--exclude_cond', action='store_true')
 
     args = argparser.parse_args()
 
@@ -279,5 +288,4 @@ if __name__ == "__main__":
     save_dataset_parallel(config, cifs_train, 'train')
     save_dataset_parallel(config, cifs_val, 'val')
     save_dataset_parallel(config, cifs_test, 'test')
-
 
