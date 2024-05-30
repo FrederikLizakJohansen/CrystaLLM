@@ -125,7 +125,6 @@ def return_operators(cif_str, space_group_symbol):
 
     symm_block = str(CifBlock(data, loops, "")).replace("data_\n", "")
 
-    #pattern = r"(loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z'\n)"
     pattern = r"(loop_\n\s*_symmetry_equiv_pos_site_id\s*_symmetry_equiv_pos_as_xyz\n\s*1\s*'x, y, z')"
 
     cif_str_updated = re.sub(pattern, symm_block, cif_str)
@@ -245,7 +244,7 @@ def save_dataset_parallel(config, cifs, bin_prefix):
     fnames = [res[1] for res in results if res[1] is not None]
     fnames = [i for sublist in fnames for i in sublist]
     id_lens = [res[2] for res in results if res[2] is not None]
-    start_indices = np.array([0] + list(np.cumsum(id_lens)[:-1] + 1), dtype=np.uint32)
+    start_indices = np.array([0] + list(np.cumsum(id_lens)[:-1]), dtype=np.uint32)
 
     print(f"Saving binary files for tag: {bin_prefix}")
 

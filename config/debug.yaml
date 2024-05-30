@@ -1,4 +1,4 @@
-out_dir: 'debug_v1_train_10k_2d'
+out_dir: 'debug_cond_model'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,27 +16,19 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/v1_10k'
-batch_size: 32
+dataset: 'datasets/v1_train_1k_cond'
+batch_size: 16
 block_size: 512
 
-n_layer: 8
-n_head: 8
+n_layer: 2
+n_head: 4
 n_embd: 512
 dropout: 0.0
 
 learning_rate: 5e-3
-max_iters: 500
-lr_decay_iters: 500
+max_iters: 1000
+lr_decay_iters: 1000
 min_lr: 1e-4
 beta2: 0.99
 
 warmup_iters: 100
-
-# Prefix
-use_prefix: True
-encode_prefix: False
-
-# LoRA
-use_lora: False
-lora_rank: 4

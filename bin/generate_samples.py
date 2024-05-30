@@ -107,14 +107,14 @@ def calculate_rmsd_cif(cif_content1, cif_content2):
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
     
-def calculate_rmsd_prefix_cif(prefix_x, prefix_y, cif, lower_limit=None):
-                        
+def calculate_rmsd_prefix_cif(prefix, cif, lower_limit=None):
+
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
         cif = return_operators(cif, space_group_symbol)
 
-    prefix_x = prefix_x.cpu().numpy()
-    prefix_y = prefix_y.cpu().numpy()
+    prefix_x = prefix[0]
+    prefix_y = prefix[1]
 
     # CIF
     calc = XRDCalculator(symprec=0.1)
@@ -205,8 +205,6 @@ def generate_samples(config):
                 # Repeats
                 for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
 
-                    print(start_idx)
-                    print(data[start_idx:start_idx+config.cond_window])
 
                     # Get sliced data from starting index and "max_len" ahead
                     sliced_data = data[start_idx:start_idx+config.cond_window]
@@ -219,6 +217,12 @@ def generate_samples(config):
 
                     # Extract the ids, including the starting id (+1)
                     cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device='cuda').unsqueeze(0)
+
+                    # Convert cond ids into [x,y] array
+                    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
+                    decoded_cond = decode(cond_ids[0][:-1].cpu().tolist())
+                    matches = pattern.findall(decoded_cond)
+                    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
                     
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
@@ -227,11 +231,9 @@ def generate_samples(config):
                         # Fit
                         if config.fit_xrd:
                             try:
-                                output = decode(out[0].tolist())
-                                # TODO
-                                #rmsd, *_ = calculate_rmsd_prefix_cif(prefix_x, prefix_y, output, lower_limit=config.lower_limit)
+                                output = decode(out[0][len(cond_ids[0])-1:].tolist())
+                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix, output, lower_limit=config.lower_limit)
                             except Exception as e:
-                                #raise e
                                 rmsd = 'NaN'
                             print()
                             print(f'RMSD: {rmsd}')

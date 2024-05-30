@@ -461,7 +461,6 @@ class GPT(nn.Module):
             for char in token_next:
                 sys.stdout.write(char)
                 sys.stdout.flush()
-                #time.sleep(0.01)
 
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
