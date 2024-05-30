@@ -143,6 +143,91 @@ def calculate_rmsd_prefix_cif(prefix, cif, lower_limit=None):
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
 
+def calculate_hdd_prefix_cif(prefix, cif, lower_limit=None):
+
+    space_group_symbol = extract_space_group_symbol(cif)
+    if space_group_symbol is not None and space_group_symbol != "P 1":
+        cif = return_operators(cif, space_group_symbol)
+
+    prefix_x = prefix[0]
+    prefix_y = prefix[1]
+
+    # CIF
+    calc = XRDCalculator(symprec=0.1)
+    parser = CifParser.from_string(cif)
+    structure = parser.get_structures()[0]
+    pattern = calc.get_pattern(structure)
+
+    if lower_limit is not None:
+        mask = pattern.y >= lower_limit
+        x = pattern.x[mask]
+        y = pattern.y[mask]
+    else:
+        x = pattern.x
+        y = pattern.y
+
+    # Unpack
+    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
+    pos2, intens2 = x, y
+
+    set1 = torch.tensor([pos1, intens1], dtype=torch.float32).T
+    set2 = torch.tensor([pos2, intens2], dtype=torch.float32).T
+
+    # HDD
+    pairwise_distances = torch.cdist(set1, set2)
+
+    forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
+    backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
+    hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
+    
+    # Interpolate intensities to a common set of positions
+    common_positions = np.union1d(pos1, pos2)
+    intens1_interpolated = np.interp(common_positions, pos1, intens1)
+    intens2_interpolated = np.interp(common_positions, pos2, intens2)
+
+    # Calculate RMSD
+    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
+
+    return rmsd, hausdorff_distance
+
+def calculate_metrics(prefix, cif, lower_limit=None):
+    
+    space_group_symbol = extract_space_group_symbol(cif)
+    if space_group_symbol is not None and space_group_symbol != "P 1":
+        cif = return_operators(cif, space_group_symbol)
+
+    prefix_x = prefix[0]
+    prefix_y = prefix[1]
+
+    # CIF
+    calc = XRDCalculator(symprec=0.1)
+    parser = CifParser.from_string(cif)
+    structure = parser.get_structures()[0]
+    pattern = calc.get_pattern(structure)
+
+    if lower_limit is not None:
+        mask = pattern.y >= lower_limit
+        x = pattern.x[mask]
+        y = pattern.y[mask]
+    else:
+        x = pattern.x
+        y = pattern.y
+
+    # Unpack
+    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
+    pos2, intens2 = x, y
+
+    set1 = torch.tensor([pos1, intens1], dtype=torch.float32).T
+    set2 = torch.tensor([pos2, intens2], dtype=torch.float32).T
+
+    # HDD
+    pairwise_distances = torch.cdist(set1, set2)
+
+    forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
+    backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
+    hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
+
+    return rmsd, hausdorff_distance
 def generate_samples(config):
     
     ptdtype = {"float32": torch.float32, "bffloat16": torch.bfloat16, "float16": torch.float16}[config.dtype]
@@ -232,11 +317,13 @@ def generate_samples(config):
                         if config.fit_xrd:
                             try:
                                 output = decode(out[0][len(cond_ids[0])-1:].tolist())
-                                rmsd, *_ = calculate_rmsd_prefix_cif(prefix, output, lower_limit=config.lower_limit)
+                                rmsd, hdd = calculate_metrics(prefix, output, lower_limit=config.lower_limit)
                             except Exception as e:
                                 rmsd = 'NaN'
+                                hdd = 'NaN'
                             print()
                             print(f'RMSD: {rmsd}')
+                            print(f'HDD: {rmsd}')
                         print()
                     else:
                         out = model.generate(cond_ids, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
