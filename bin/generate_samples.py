@@ -107,7 +107,7 @@ def calculate_rmsd_cif(cif_content1, cif_content2):
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
     
-def calculate_rmsd_prefix_cif(prefix, cif, lower_limit=None):
+def calculate_rmsd_prefix_cif(prefix, cif, scattering_lower_limit=None):
 
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
@@ -122,8 +122,8 @@ def calculate_rmsd_prefix_cif(prefix, cif, lower_limit=None):
     structure = parser.get_structures()[0]
     pattern = calc.get_pattern(structure)
 
-    if lower_limit is not None:
-        mask = pattern.y >= lower_limit
+    if scattering_lower_limit is not None:
+        mask = pattern.y >= scattering_lower_limit
         x = pattern.x[mask]
         y = pattern.y[mask]
     else:
@@ -143,7 +143,7 @@ def calculate_rmsd_prefix_cif(prefix, cif, lower_limit=None):
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
     return rmsd, common_positions, intens1_interpolated, intens2_interpolated
 
-def calculate_hdd_prefix_cif(prefix, cif, lower_limit=None):
+def calculate_hdd_prefix_cif(prefix, cif, scattering_lower_limit=None):
 
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
@@ -158,8 +158,8 @@ def calculate_hdd_prefix_cif(prefix, cif, lower_limit=None):
     structure = parser.get_structures()[0]
     pattern = calc.get_pattern(structure)
 
-    if lower_limit is not None:
-        mask = pattern.y >= lower_limit
+    if scattering_lower_limit is not None:
+        mask = pattern.y >= scattering_lower_limit
         x = pattern.x[mask]
         y = pattern.y[mask]
     else:
@@ -190,7 +190,7 @@ def calculate_hdd_prefix_cif(prefix, cif, lower_limit=None):
 
     return rmsd, hausdorff_distance
 
-def calculate_metrics(prefix, cif, lower_limit=None):
+def calculate_metrics(prefix, cif, scattering_lower_limit=None):
     
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
@@ -205,8 +205,8 @@ def calculate_metrics(prefix, cif, lower_limit=None):
     structure = parser.get_structures()[0]
     pattern = calc.get_pattern(structure)
 
-    if lower_limit is not None:
-        mask = pattern.y >= lower_limit
+    if scattering_lower_limit is not None:
+        mask = pattern.y >= scattering_lower_limit
         x = pattern.x[mask]
         y = pattern.y[mask]
     else:
@@ -228,6 +228,7 @@ def calculate_metrics(prefix, cif, lower_limit=None):
     hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
 
     return rmsd, hausdorff_distance
+
 def generate_samples(config):
     
     ptdtype = {"float32": torch.float32, "bffloat16": torch.bfloat16, "float16": torch.float16}[config.dtype]
@@ -240,7 +241,11 @@ def generate_samples(config):
     meta_path = os.path.join(config.dataset_dir, "meta.pkl")
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
-    #prefix_size = meta['prefix_size']
+
+    try:
+        config.scattering_lower_limit = meta["scattering_lower_limit"]
+    except Exception:
+        print(f"Could not find scattering lower limit in meta-data, defaulting to {config.scattering_lower_limit}")
     
     # Init tokenizer
     tokenizer = CIFTokenizer()
@@ -317,7 +322,7 @@ def generate_samples(config):
                         if config.fit_xrd:
                             try:
                                 output = decode(out[0][len(cond_ids[0])-1:].tolist())
-                                rmsd, hdd = calculate_metrics(prefix, output, lower_limit=config.lower_limit)
+                                rmsd, hdd = calculate_metrics(prefix, output, scattering_lower_limit=config.scattering_lower_limit)
                             except Exception as e:
                                 rmsd = 'NaN'
                                 hdd = 'NaN'
@@ -368,7 +373,7 @@ class SampleDefaults:
     post_process: bool = False
     encode_prefix: bool = False
     fit_xrd: bool = False
-    lower_limit: float = 5.0
+    scattering_lower_limit: float = 5.0
     cond_window: int = 200
 
 if __name__ == "__main__":
@@ -390,7 +395,7 @@ if __name__ == "__main__":
     parser.add_argument("--post_process", action='store_true')
     parser.add_argument("--encode_prefix", action='store_true')
     parser.add_argument("--fit_xrd", action='store_true')
-    parser.add_argument("--lower_limit", type=float)
+    parser.add_argument("--scattering_lower_limit", type=float)
     args = parser.parse_args()
 
     config = SampleDefaults()

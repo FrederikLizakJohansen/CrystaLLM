@@ -25,6 +25,8 @@ from crystallm import (
     CIFTokenizer,
 )
 
+from generate_samples import calculate_metrics
+
 import torch.nn.functional as F
 
 
@@ -135,12 +137,19 @@ if __name__ == "__main__":
 
         cif_vocab_size = meta['cif_vocab_size']
         scattering_type = meta['scattering_type']
+        scattering_lower_limit = meta['scattering_lower_limit']
 
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
+        print(f"Found scattering_lower_limit = {scattering_lower_limit} (inside {meta_path})", flush=True)
 
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
+    train_start_indices = np.memmap(os.path.join(C.dataset, "start_indices_train.bin"), dtype=np.uint32, mode="r")
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
+    val_start_indices = np.memmap(os.path.join(C.dataset, "start_indices_train.bin"), dtype=np.uint32, mode="r") if C.validate else None
+        
+    # Starting id
+    cif_start_id = tokenizer.token_to_id["data_"]
 
     cif_start_indices = read_start_indices(
         max_start_index=len(train_data) - C.block_size,
@@ -162,6 +171,33 @@ if __name__ == "__main__":
         on_condition=C.underrep_p > 0,
         required=True,
     )
+
+    def get_cond_batch(split: str, batch_size: int):
+
+        # Pointer to data
+        data = train_data if split == "train" else val_data
+        start = train_start_indices if split == "train" else val_start_indices
+
+        # Extract random batch
+        start_batch = start[torch.randint(len(start), (C.batch_size,))]
+
+        # Slice data based on batch starting indices
+        out = []
+        for s_idx in start_batch:
+            sliced_data = data[s_idx:s_idx+C.block_size]
+
+            try:
+                end_index = torch.where(sliced_data == cif_start_id)[0][0]
+            except IndexError:
+                continue
+                    
+            # Extract the ids, including the starting id (+1)
+            cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device='cuda').unsqueeze(0)
+            out.append(cond_ids)
+
+        return out
+
+
     
     def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False):
 
@@ -314,11 +350,37 @@ if __name__ == "__main__":
             RMSDs = torch.zeros(gen_iters)
             HDDs = torch.zeros(gen_iters)
             for k in range(gen_iters):
+                # Get batch
+                cond_batch = get_cond_batch(split, C.batch_size)
+                rmsds, hdds = [], []
+                for cond_ids in cond_batch:
+
+                    # Convert cond ids into [x,y] array
+                    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
+                    decoded_cond = tokenizer.decode(cond_ids[0][:-1].cpu().tolist())
+                    matches = pattern.findall(decoded_cond)
+                    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
+                    
+                    # Generate CIF
+                    out = model.generate(cond_ids, max_new_tokens=C.gen_max_new_tokens, top_k=C.gen_top_k)
+                    try:
+                        output = tokenizer.decode(out[0][len(cond_ids[0])-1:].tolist())
+                        rmsd, hdd = calculate_metrics(prefix, output, scattering_lower_limit=scattering_lower_limit)
+                        rmsds.append(rmsd)
+                        hdds.append(hdd)
+                    except:
+                        rmsds.append(100)
+                        hdds.append(100)
+
+                RMSDs[k] = torch.mean(rmsds)
+                HDDs[k] = torch.mean(hdds)
+
+            out[split]["RMSD"] = torch.mean(RMSDs)
+            out[split]["HDD"] = torch.mean(HDDs)
                 
-                # TODO Sample a batch of CIFs
-                # TODO Sweep the ids and generate for everyting from 1 id provided to almost all.
-                # Then we can make a sort of waterfall plot from this!
-                break # TODO Remove
+            # TODO Sample a batch of CIFs
+            # TODO Sweep the ids and generate for everyting from 1 id provided to almost all.
+            # Then we can make a sort of waterfall plot from this!
 
         model.train()
         return out

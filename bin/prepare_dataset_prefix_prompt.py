@@ -73,14 +73,14 @@ class DefaultDatasetConfig:
 
     pl: bool = False
 
-    lower_limit: float = 5.0
+    scattering_lower_limit: float = 5.0
 
     exclude_cond: bool = False
 
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
 
-def get_reflections(cif_content, lower_limit = None):
+def get_reflections(cif_content, scattering_lower_limit = None):
 
     # Make structure
     try:
@@ -92,8 +92,8 @@ def get_reflections(cif_content, lower_limit = None):
         out = calc.get_pattern(structure) # Scaled and tth=(0,90)
 
         # Mask
-        if lower_limit is not None:
-            mask = out.y >= lower_limit
+        if scattering_lower_limit is not None:
+            mask = out.y >= scattering_lower_limit
             x = out.x[mask]
             y = out.y[mask]
 
@@ -184,6 +184,8 @@ def prepare_split(
         "id_to_token": tokenizer.id_to_token,
         "token_to_id": tokenizer.token_to_id,
         "scattering_type": config.scattering_type,
+        "scattering_lower_limit": config.scattering_lower_limit,
+        "cond_included": not config.exclude_cond,
     }
     with open(os.path.join(config.dataset_path, 'meta.pkl'), "wb") as f:
         pickle.dump(meta, f)
@@ -217,7 +219,7 @@ def process_cif(
         ids = tokenizer.encode(tokens)
     
         if not config.exclude_cond:
-            prefix_x, prefix_y = get_reflections(symm_cif, config.lower_limit)
+            prefix_x, prefix_y = get_reflections(symm_cif, config.scattering_lower_limit)
             prefix_ids = []
             for px, py in zip(prefix_x, prefix_y):
                 px_id = tokenizer.encode(str(np.around(px,2)))
@@ -271,7 +273,7 @@ if __name__ == "__main__":
     argparser.add_argument('--device', type=str)
     argparser.add_argument('--output', type=str)
     argparser.add_argument('--dataset_name', type=str)
-    argparser.add_argument('--lower_limit', type=float)
+    argparser.add_argument('--scattering_lower_limit', type=float)
     argparser.add_argument('--exclude_cond', action='store_true')
 
     args = argparser.parse_args()
