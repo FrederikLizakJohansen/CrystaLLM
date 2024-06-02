@@ -1,9 +1,9 @@
-out_dir: 'debug_cond_3k_model'
+out_dir: 'debug_finetuning'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'scratch'
+init_from: 'finetune'
 
 device: 'cuda'
 compile: True
@@ -15,23 +15,23 @@ always_save_checkpoint: True
 
 # whether to validate with a validation set
 validate: True
-validate_generation: True
+validate_generation: False
 
-dataset: 'datasets/v1_train_3k_cond'
-batch_size: 16
+dataset: 'datasets/v1_train_3k_nocond'
+batch_size: 8
 block_size: 512
 
-n_layer: 4
-n_head: 4
+n_layer: 8
+n_head: 8
 n_embd: 512
-dropout: 0.0
+dropout: 0.1
 
-learning_rate: 5e-3
-max_iters: 1000
-lr_decay_iters: 1000
+learning_rate: 5e-4
+max_iters: 100_100
+lr_decay_iters: 100_100
 min_lr: 1e-4
 beta2: 0.99
 
 warmup_iters: 100
 
-gen_batch_size: 2
+use_lora: True

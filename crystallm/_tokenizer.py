@@ -1,6 +1,5 @@
 import os
 import re
-import numpy as np
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -58,17 +57,7 @@ UNK_TOKEN = "<unk>"
 
 
 class CIFTokenizer:
-    def __init__(
-        self,
-        prefix_x_vocab_size: int = 1000,
-        prefix_y_vocab_size: int = 1000,
-        prefix_size: int = 100,
-        pad_token: str = "\n",
-        xmin: float = 0.0,
-        xmax: float = 10.0,
-        ymin: float = 0.0,
-        ymax: float = 100.0,
-    ):
+    def __init__(self):
         self._tokens = list(self.atoms())
         self._tokens.extend(self.digits())
         self._tokens.extend(self.keywords())
@@ -93,23 +82,6 @@ class CIFTokenizer:
         #  for decoding convenience
         for sg in space_groups_sg:
             self._id_to_token[self.token_to_id[sg]] = sg.replace("_sg", "")
-
-        # Padding
-        self.pad_token = pad_token
-
-        # Prefix
-        self.prefix_x_vocab_size = prefix_x_vocab_size
-        self.prefix_y_vocab_size = prefix_y_vocab_size
-        
-        # Prefix x
-        self.prefix_x_bin_edges = np.linspace(xmin, xmax, prefix_x_vocab_size-1)
-        self._prefix_x_to_id = lambda y: np.digitize(y, self.prefix_x_bin_edges, right=True)
-        self._id_to_prefix_x = {i: n for i, n in enumerate(self.prefix_x_bin_edges)}
-        
-        # Prefix y
-        self.prefix_y_bin_edges = np.linspace(ymin, ymax, prefix_y_vocab_size-1)
-        self._prefix_y_to_id = lambda y: np.digitize(y, self.prefix_y_bin_edges, right=True)
-        self._id_to_prefix_y = {i: n for i, n in enumerate(self.prefix_y_bin_edges)}
 
     @staticmethod
     def atoms():
@@ -140,14 +112,6 @@ class CIFTokenizer:
     @property
     def id_to_token(self):
         return dict(self._id_to_token)
-    
-    @property
-    def prefix_x_to_id(self):
-        return self._prefix_x_to_id
-
-    @property
-    def prefix_y_to_id(self):
-        return self._prefix_y_to_id
 
     def encode(self, tokens):
         # encoder: take a list of tokens, output a list of integers
@@ -156,22 +120,6 @@ class CIFTokenizer:
     def decode(self, ids):
         # decoder: take a list of integers (i.e. encoded tokens), output a string
         return ''.join([self._id_to_token[i] for i in ids])
-    
-    def encode_prefix_x(self, x):
-        # Encoder for prefix x; takes a continues signal and discretize it into ids
-        return list(self._prefix_x_to_id(x))
-    
-    def encode_prefix_y(self, x):
-        # Encoder for prefix y; takes a continues signal and discretize it into ids
-        return list(self._prefix_y_to_id(x))
-    
-    def decode_prefix_x(self, ids):
-        # Decoder for prefix x; takes a list of integers, i.e. encoded continues signal
-        return [self._id_to_prefix_x[i] for i in ids]
-    
-    def decode_prefix_y(self, ids):
-        # Decoder for prefix y; takes a list of integers, i.e. encoded continues signal
-        return [self._id_to_prefix_y[i] for i in ids]
 
     def tokenize_cif(self, cif_string, single_spaces=True):
         # Preprocessing step to replace '_symmetry_space_group_name_H-M Pm'
@@ -194,8 +142,4 @@ class CIFTokenizer:
         # Replace unrecognized tokens with the unknown_token
         tokens = [token if token in self._tokens else UNK_TOKEN for token in tokens]
 
-        return tokens
-
-    def pad_tokens(self, tokens, total_size):
-        tokens.extend([self.pad_token] * (total_size - len(tokens)))
         return tokens

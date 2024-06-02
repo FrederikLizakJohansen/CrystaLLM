@@ -312,9 +312,9 @@ if __name__ == "__main__":
                 print(f"Could not find {key}, creating empty list")
 
     # crop down the model block size if desired, using model surgery
-    if C.block_size < model.config.block_size:
-        model.crop_block_size(C.block_size)
-        model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
+    #if C.block_size < model.config.block_size:
+    #    model.crop_block_size(C.block_size)
+    #    model_args["block_size"] = C.block_size  # so that the checkpoint will have the right value
     model.to(C.device)
 
     # initialize a GradScaler; if enabled=False scaler is a no-op

@@ -33,11 +33,8 @@ class LoRALayer(nn.Module):
 
 @dataclass
 class GPTConfig:
-    block_size: int = 512
+    block_size: int = 1024
     vocab_size: int = 371
-    prefix_x_vocab_size: int = 1000
-    prefix_y_vocab_size: int = 1000
-    prefix_size: int = 100
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -174,7 +171,6 @@ class MLP(nn.Module):
             x = self.c_proj(x) + self.lora_proj(x)
         else:
             x = self.c_proj(x)
-        x = gelu(x)
         x = self.dropout(x)
         return x
 
@@ -216,7 +212,6 @@ class GPT(nn.Module):
             ln_f=LayerNorm(config.n_embd, bias=config.bias),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-
         # https://paperswithcode.com/method/weight-tying
         self.transformer.wte.weight = self.lm_head.weight
 
@@ -253,23 +248,6 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def create_fixed_length_prefix(self, prefix_x, prefix_y, xmin, xmax, num_entries, device):
-        batch_size = prefix_x.shape[0]
-        output_tensor = torch.zeros((batch_size, num_entries), dtype=torch.float32).to(device=device)
-
-        for i in range(batch_size):
-            # Nomrlize prefix x to the range [0, num_entries-1]
-            norm_x = ((prefix_x[i] - xmin) / (xmax - xmin) * (num_entries-1)).long()
-
-            # Ensure indicies are within valid range
-            norm_x = torch.clamp(norm_x, 0, num_entries-1)
-
-            # Place prefix_y in the tensor
-            output_tensor[i, norm_x] = prefix_y[i]
-
-        return output_tensor
-
-
     def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
@@ -280,10 +258,8 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
-        
         for block in self.transformer.h:
             x = block(x)
-
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -389,15 +365,12 @@ class GPT(nn.Module):
         """
         tokenizer = CIFTokenizer()
         newline_id = tokenizer.token_to_id["\n"]
-        #pad_id = tokenizer.token_to_id["<pad>"]
-        unk_id = tokenizer.token_to_id["<unk>"]
         prev_id = None
         generation_pbar = tqdm(total=max_new_tokens, desc='Generating sequence', leave=False)
-        for i in range(max_new_tokens):
+        for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            # TODO INSERT PREFIX
             logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
@@ -430,7 +403,6 @@ class GPT(nn.Module):
         """
         tokenizer = CIFTokenizer()
         newline_id = tokenizer.token_to_id["\n"]
-        unk_id = tokenizer.token_to_id["<unk>"]
         prev_id = None
             
         for id in idx[0]:
@@ -439,10 +411,9 @@ class GPT(nn.Module):
                 sys.stdout.write(char)
                 sys.stdout.flush()
 
-        for i in range(max_new_tokens):
+        for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            # TODO INSERT PREFIX
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
@@ -467,7 +438,6 @@ class GPT(nn.Module):
             # a sequence of two newlines indicates the end of a CIF file
             if prev_id is not None and prev_id == newline_id and idx_next.item() == newline_id:
                 break
-
             prev_id = idx_next.item()
 
         return idx

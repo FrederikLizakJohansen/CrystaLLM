@@ -68,6 +68,7 @@ def generate(model_dir, seed, device, dtype, num_gens, temperature, top_k, chunk
                     y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
                     output = decode(y[0].tolist())
                     gens.append(output)
+                    print(output)
                 generated.append((id, gens))
                 queue.put(1)
     return generated
@@ -113,7 +114,7 @@ if __name__ == "__main__":
         gpus_avail = 0
     parser.set_defaults(gpus=gpus_avail)
     args = parser.parse_args()
-
+    
     if args.debug_max == 0:
         args.debug_max = None
 

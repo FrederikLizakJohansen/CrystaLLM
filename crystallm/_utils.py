@@ -130,7 +130,7 @@ def extract_formula_units(cif_str):
 
 
 def extract_data_formula(cif_str):
-    #match = re.search(r"data_([A-Za-z0-9.]+)\n", cif_str)
+    #match = re.search(r"data_([A-Za-z0-9]+)\n", cif_str)
     match = re.search(r"data_([A-Za-z0-9.()]+)\n", cif_str) # Including paranthesis
     if match:
         return match.group(1)
