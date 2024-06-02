@@ -46,7 +46,6 @@ def read_generated_cifs(input_path):
                 cif_lines.append("\n")
                 cif = "\n".join(cif_lines)
                 generated_cifs.append(cif)
-                print(cif)
     return generated_cifs
 
 
