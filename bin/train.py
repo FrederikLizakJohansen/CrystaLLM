@@ -5,6 +5,7 @@ https://github.com/karpathy/nanoGPT/blob/eba36e84649f3c6d840a93092cb779a260544d0
 import sys
 sys.path.append(".")
 import os
+import re
 import copy
 from dataclasses import dataclass
 from typing import Union
@@ -82,6 +83,11 @@ class TrainDefaults:
     underrep_p: float = 0.0
     validate: bool = False  # whether to evaluate the model using the validation set
     validate_generation: bool = False
+    gen_iters_train: int = 2
+    gen_iters_val: int = 2
+    gen_max_new_tokens: int = 1000
+    gen_top_k: int = 5
+    gen_batch_size: int = 32
 
     # Early stopping
     early_stopping_patience: int = 5
@@ -146,9 +152,10 @@ if __name__ == "__main__":
     train_data = np.memmap(os.path.join(C.dataset, "train.bin"), dtype=np.uint16, mode="r")
     train_start_indices = np.memmap(os.path.join(C.dataset, "start_indices_train.bin"), dtype=np.uint32, mode="r")
     val_data = np.memmap(os.path.join(C.dataset, "val.bin"), dtype=np.uint16, mode="r") if C.validate else None
-    val_start_indices = np.memmap(os.path.join(C.dataset, "start_indices_train.bin"), dtype=np.uint32, mode="r") if C.validate else None
+    val_start_indices = np.memmap(os.path.join(C.dataset, "start_indices_val.bin"), dtype=np.uint32, mode="r") if C.validate else None
         
     # Starting id
+    tokenizer = CIFTokenizer()
     cif_start_id = tokenizer.token_to_id["data_"]
 
     cif_start_indices = read_start_indices(
@@ -172,14 +179,14 @@ if __name__ == "__main__":
         required=True,
     )
 
-    def get_cond_batch(split: str, batch_size: int):
+    def get_cond_batch(split: str, batch_size: int = C.gen_batch_size):
 
         # Pointer to data
         data = train_data if split == "train" else val_data
         start = train_start_indices if split == "train" else val_start_indices
 
         # Extract random batch
-        start_batch = start[torch.randint(len(start), (C.batch_size,))]
+        start_batch = start[torch.randint(len(start), (batch_size,))]
 
         # Slice data based on batch starting indices
         out = []
@@ -187,23 +194,21 @@ if __name__ == "__main__":
             sliced_data = data[s_idx:s_idx+C.block_size]
 
             try:
-                end_index = torch.where(sliced_data == cif_start_id)[0][0]
+                end_index = np.where(sliced_data == cif_start_id)[0][0]
             except IndexError:
                 continue
-                    
+
             # Extract the ids, including the starting id (+1)
             cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device='cuda').unsqueeze(0)
             out.append(cond_ids)
 
         return out
 
-
-    
     def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False):
 
         data = train_data if split == "train" else val_data
 
-        ix = torch.randint(len(data) - C.block_size, (C.batch_size,))
+        ix = torch.randint(len(data) - C.block_size, (batch_size,))
 
         x = torch.stack([torch.from_numpy((data[i:i + C.block_size]).astype(np.int64)) for i in ix])
         y = torch.stack([torch.from_numpy((data[i+1:i +1 + C.block_size]).astype(np.int64)) for i in ix])
@@ -291,7 +296,7 @@ if __name__ == "__main__":
         raise Exception("[init_from] not recognized")
 
     # Checkpoint metrics
-    metrics_variables = ["train_losses", "val_losses", "epoch_losses", "RMSD", "epoch_RMSD", "HDD", "epoch_HDD"]
+    metrics_variables = ["train_losses", "val_losses", "epoch_losses", "train_RMSD", "val_RMSD", "epoch_RMSD", "train_HDD", "val_HDD", "epoch_HDD"]
     if checkpoint is None:
         metrics = {}
         for key in metrics_variables:
@@ -343,15 +348,16 @@ if __name__ == "__main__":
     # If generation is consistent, generate and validate on RMSD and HDD
     @torch.no_grad()
     def generation_loss():
-        out = {}
+        out_RMSD = {}
+        out_HDD = {}
         model.eval()
 
         for split, gen_iters in [("train", C.gen_iters_train), ("val", C.gen_iters_val)]:
-            RMSDs = torch.zeros(gen_iters)
-            HDDs = torch.zeros(gen_iters)
+            RMSDs = np.zeros(gen_iters)
+            HDDs = np.zeros(gen_iters)
             for k in range(gen_iters):
                 # Get batch
-                cond_batch = get_cond_batch(split, C.batch_size)
+                cond_batch = get_cond_batch(split, C.gen_batch_size)
                 rmsds, hdds = [], []
                 for cond_ids in cond_batch:
 
@@ -368,22 +374,21 @@ if __name__ == "__main__":
                         rmsd, hdd = calculate_metrics(prefix, output, scattering_lower_limit=scattering_lower_limit)
                         rmsds.append(rmsd)
                         hdds.append(hdd)
-                    except:
+                    except Exception as e:
                         rmsds.append(100)
                         hdds.append(100)
 
-                RMSDs[k] = torch.mean(rmsds)
-                HDDs[k] = torch.mean(hdds)
+                RMSDs[k] = np.mean(rmsds)
+                HDDs[k] = np.mean(hdds)
 
-            out[split]["RMSD"] = torch.mean(RMSDs)
-            out[split]["HDD"] = torch.mean(HDDs)
+            out_RMSD[split] = np.mean(RMSDs)
+            out_HDD[split] = np.mean(HDDs)
                 
-            # TODO Sample a batch of CIFs
             # TODO Sweep the ids and generate for everyting from 1 id provided to almost all.
             # Then we can make a sort of waterfall plot from this!
 
         model.train()
-        return out
+        return out_RMSD, out_HDD
 
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(it):
@@ -424,16 +429,19 @@ if __name__ == "__main__":
 
             if C.validate_generation:
                 
-                gen_losses = generation_loss()
+                gen_RMSD, gen_HDD = generation_loss()
 
-                if gen_losses['RMSD'] is not None:
-                    metrics['RMSD'].append(gen_losses['RMSD'])
-                    metrics['epoch_RMSD'].append(iter_num)
-                    print(f"step {iter_num}: RMSD train {gen_losses['train']:.4f}, RMSD val {gen_losses['val']:.4f}", flush=True)
-                if gen_losses['HDD'] is not None:
-                    metrics['HDD'].append(gen_losses['HDD'])
-                    metrics['epoch_HDD'].append(iter_num)
-                    print(f"step {iter_num}: HDD train {gen_losses['train']:.4f}, HDD val {gen_losses['val']:.4f}", flush=True)
+                metrics['train_RMSD'].append(gen_RMSD['train'])
+                metrics['val_RMSD'].append(gen_RMSD['val'])
+                metrics['epoch_RMSD'].append(iter_num)
+                    
+                print(f"step {iter_num}: RMSD train {gen_RMSD['train']:.4f}, RMSD val {gen_RMSD['val']:.4f}", flush=True)
+                
+                metrics['train_HDD'].append(gen_HDD['train'])
+                metrics['val_HDD'].append(gen_HDD['val'])
+                metrics['epoch_HDD'].append(iter_num)
+                    
+                print(f"step {iter_num}: HDD train {gen_HDD['train']:.4f}, HDD val {gen_HDD['val']:.4f}", flush=True)
 
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 best_val_loss = losses["val"] if C.validate else 0.
