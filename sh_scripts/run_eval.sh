@@ -7,4 +7,23 @@
 #SBATCH --mem-per-cpu=6G
 #SBATCH --output=logs/eval_%A_%a.out
 
-python bin/evaluate_cifs.py gen_v1_small_CHILI-3K.tar.gz -o eval_v1_small_CHILI-3K.csv --workers 12
+# Function to display help message
+usage() {
+  echo "Usage: $0 [options]"
+  echo "Pass any number of arguments and their values to the script, e.g. --a value1 --b value2"
+  exit 1
+}
+
+# Check if any arguments are provided
+if [ "$#" -eq 0 ]; then
+  usage
+fi
+
+# Collect all aguments
+ARGS=("$@")
+
+# Display the arguments
+echo "Arguments passed: ${ARGS[*]}"
+
+python bin/evaluate_cifs.py "${ARGS[@]}"
+

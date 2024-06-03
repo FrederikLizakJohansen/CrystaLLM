@@ -1,5 +1,5 @@
 out_dir: 'v1_small_CHILI-3K_lora_r2'
-eval_interval: 250  # how often to evaluate against the validation set
+eval_interval: 100  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
@@ -36,3 +36,5 @@ warmup_iters: 100
 
 use_lora: True
 lora_rank: 2
+
+early_stopping_patience: 1
