@@ -444,6 +444,14 @@ if __name__ == "__main__":
                 print(f"step {iter_num}: HDD train {gen_HDD['train']:.4f}, HDD val {gen_HDD['val']:.4f}", flush=True)
 
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
+                # Patience
+                if (C.validate and losses["val"] >= best_val_loss) and iter_num != 0:
+                    patience_counter += 1
+                    print("Patience score increasing to:", patience_counter)
+                else:
+                    patience_counter = 0
+                    print("Patience score resetting.")
+
                 best_val_loss = losses["val"] if C.validate else 0.
                 best_model_state = copy.deepcopy(model.state_dict())
                 best_optimizer_state = copy.deepcopy(optimizer.state_dict())
@@ -461,12 +469,10 @@ if __name__ == "__main__":
                     }
                     print(f"saving checkpoint to {C.out_dir}...", flush=True)
                     torch.save(checkpoint, os.path.join(C.out_dir, "ckpt.pt"))
-            else:
-                patience_counter += 1
 
-            if patience_counter >= C.early_stopping_patience:
-                print(f"Early stopping triggered after {iter_num} iterations")
-                break
+                if patience_counter >= C.early_stopping_patience:
+                    print(f"Early stopping triggered after {iter_num} iterations")
+                    break
 
         if iter_num == 0 and C.eval_only:
             break

@@ -106,8 +106,13 @@ def is_atom_site_multiplicity_consistent(cif_str):
     # Extract the chemical formula sum from the CIF data
     formula_sum = cif_data[list(cif_data.keys())[0]]["_chemical_formula_sum"]
 
+    #print()
+    #print(cif_str)
+    #print(formula_sum)
+
     # Convert the formula sum into a dictionary
     expected_atoms = Composition(formula_sum).as_dict()
+    #print(expected_atoms)
 
     # Count the atoms provided in the _atom_site_type_symbol section
     actual_atoms = {}
@@ -116,12 +121,18 @@ def is_atom_site_multiplicity_consistent(cif_str):
             for atom_type, multiplicity in zip(cif_data[key]["_atom_site_type_symbol"],
                                                cif_data[key]["_atom_site_symmetry_multiplicity"]):
                 
-                atom_type = re.sub(r'[0-9+-]', '', atom_type)
+                #print(atom_type)
+                #atom_type = re.sub(r'[0-9+-]', '', atom_type)
+                #print(atom_type)
 
                 if atom_type in actual_atoms:
                     actual_atoms[atom_type] += int(multiplicity)
                 else:
                     actual_atoms[atom_type] = int(multiplicity)
+
+                #print(actual_atoms)
+
+    #print(actual_atoms)
 
     return expected_atoms == actual_atoms
 

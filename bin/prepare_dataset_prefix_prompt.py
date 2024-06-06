@@ -29,6 +29,7 @@ from crystallm import (
     extract_space_group_symbol,
     replace_symmetry_operators,
     remove_atom_props_block,
+    is_valid,
 )
 
 from pymatgen.core import Composition
@@ -76,6 +77,8 @@ class DefaultDatasetConfig:
     scattering_lower_limit: float = 5.0
 
     exclude_cond: bool = False
+
+    clean: bool = False
 
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
@@ -209,6 +212,10 @@ def process_cif(
 
     cif = '\n'.join(cif_lines)
 
+    if args.clean:
+        if not is_valid(cif, bond_length_acceptability_cutoff=0.0):
+            return None, None, None
+
     # Tokenizer
     tokenizer = CIFTokenizer()
     
@@ -275,6 +282,7 @@ if __name__ == "__main__":
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--scattering_lower_limit', type=float)
     argparser.add_argument('--exclude_cond', action='store_true')
+    argparser.add_argument('--clean', action='store_true')
 
     args = argparser.parse_args()
 

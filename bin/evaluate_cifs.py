@@ -20,6 +20,7 @@ from crystallm import (
     get_unit_cell_volume,
     is_atom_site_multiplicity_consistent,
     is_space_group_consistent,
+    is_formula_consistent,
     is_sensible,
     is_valid,
     replace_symmetry_operators,
@@ -64,6 +65,8 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
     tokenizer = CIFTokenizer()
     n_atom_site_multiplicity_consistent = 0
     n_space_group_consistent = 0
+    n_bond_length_reasonability = 0
+    n_formula_consistent = 0
     bond_length_reasonableness_scores = []
     is_valid_and_len = []
 
@@ -81,18 +84,40 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
 
             gen_len = len(tokenizer.tokenize_cif(cif))
 
+            # Spacegroup
             space_group_symbol = extract_space_group_symbol(cif)
             if space_group_symbol is not None and space_group_symbol != "P 1":
                 cif = replace_symmetry_operators(cif, space_group_symbol)
 
+            # ASM
             if is_atom_site_multiplicity_consistent(cif):
                 n_atom_site_multiplicity_consistent += 1
+                asm_valid = True
+            else:
+                asm_valid = False
 
+            # SG
             if is_space_group_consistent(cif):
                 n_space_group_consistent += 1
+                sg_valid = True
+            else:
+                sg_valid = False
 
+            # BLRS
             score = bond_length_reasonableness_score(cif)
             bond_length_reasonableness_scores.append(score)
+            if score >= 1.0:
+                n_bond_length_reasonability += 1
+                blrs_valid = True
+            else:
+                blrs_valid = False
+
+            # Formula consistency
+            if is_formula_consistent(cif):
+                n_formula_consistent += 1
+                f_valid = True
+            else:
+                f_valid = False
 
             a = extract_numeric_property(cif, "_cell_length_a")
             b = extract_numeric_property(cif, "_cell_length_b")
@@ -105,9 +130,11 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
             gen_vol = extract_volume(cif)
             data_formula = extract_data_formula(cif)
 
-            valid = is_valid(cif, bond_length_acceptability_cutoff=1.0)
+            valid = asm_valid and sg_valid and blrs_valid and f_valid
 
-            is_valid_and_len.append((data_formula, space_group_symbol, valid, gen_len, implied_vol, gen_vol))
+            #valid = is_valid(cif, bond_length_acceptability_cutoff=1.0)
+
+            is_valid_and_len.append((data_formula, f_valid, asm_valid, space_group_symbol, sg_valid, score, blrs_valid, valid, gen_len, implied_vol, gen_vol))
 
         except Exception as e:
             if debug:
@@ -117,8 +144,10 @@ def eval_cif(progress_queue, task_queue, result_queue, length_lo, length_hi, ang
         progress_queue.put(1)
 
     result = (
+        n_formula_consistent,
         n_atom_site_multiplicity_consistent,
         n_space_group_consistent,
+        n_bond_length_reasonability,
         bond_length_reasonableness_scores,
         is_valid_and_len,
     )
@@ -144,7 +173,11 @@ if __name__ == "__main__":
                         help="Number of workers to use for processing.")
     parser.add_argument("--debug", required=False, action="store_true",
                         help="Include this flag to print exception messages if they occur during evaluation")
+    parser.add_argument("--debug_max", type=int, default=0)
     args = parser.parse_args()
+
+    if args.debug_max == 0:
+        args.debug_max = None
 
     gen_cifs_path = args.gen_cifs
     out_fname = args.out
@@ -162,8 +195,8 @@ if __name__ == "__main__":
     task_queue = manager.Queue()
     result_queue = manager.Queue()
 
-    n = len(cifs)
-    for cif in cifs:
+    n = len(cifs[:args.debug_max])
+    for cif in cifs[:args.debug_max]:
         task_queue.put(cif)
 
     watcher = mp.Process(target=progress_listener, args=(progress_queue, n,))
@@ -184,13 +217,17 @@ if __name__ == "__main__":
 
     n_atom_site_multiplicity_consistent = 0
     n_space_group_consistent = 0
+    n_bond_length_reasonability = 0
+    n_formula_consistent = 0
     bond_length_reasonableness_scores = []
     is_valid_and_lens = []
 
     while not result_queue.empty():
-        n_atom_site_occ, n_space_group, scores, is_valid_and_len = result_queue.get()
+        n_formula, n_atom_site_occ, n_space_group, n_bond_length, scores, is_valid_and_len = result_queue.get()
+        n_formula_consistent += n_formula
         n_atom_site_multiplicity_consistent += n_atom_site_occ
         n_space_group_consistent += n_space_group
+        n_bond_length_reasonability += n_bond_length
         bond_length_reasonableness_scores.extend(scores)
         is_valid_and_lens.extend(is_valid_and_len)
 
@@ -204,10 +241,19 @@ if __name__ == "__main__":
         "implied_vol": [],
         "gen_vol": [],
     }
-    for comp, sg, valid, gen_len, implied_vol, gen_vol in is_valid_and_lens:
+    # is_valid_and_len.append((data_formula, asm_valid, space_group_symbol, sg_valid, score, blrs_valid, valid, gen_len, implied_vol, gen_vol))
+    for comp, f_valid, asm_valid, sg, sg_valid, score, blrs_valid, valid, gen_len, implied_vol, gen_vol in is_valid_and_lens:
         if valid:
             n_valid += 1
             valid_gen_lens.append(gen_len)
+        #else:
+        #    print("Comp:", comp)
+        #    print("ASM valid:", asm_valid)
+        #    print("SG valid?:", sg_valid)
+        #    print("BLRS valid?:", blrs_valid)
+        #    print("F valid?:", f_valid)
+        #    print()
+
         results_data["comp"].append(comp)
         results_data["sg"].append(sg)
         results_data["is_valid"].append(valid)
@@ -221,9 +267,11 @@ if __name__ == "__main__":
           f"avg. bond length reasonableness score: "
           f"{np.mean(bond_length_reasonableness_scores):.4f} ± {np.std(bond_length_reasonableness_scores):.4f}\n"
           f"bond lengths reasonable: "
-          f"{bond_length_reasonableness_scores.count(1.)}/{n} ({bond_length_reasonableness_scores.count(1.) / n:.3f})")
+          f"{bond_length_reasonableness_scores.count(1.)}/{n} ({bond_length_reasonableness_scores.count(1.) / n:.3f})\n"
+          f"formula consistent: "
+          f"{n_formula_consistent}/{n} ({n_formula_consistent / n:.3f})\n")
     print(f"num valid: {n_valid}/{n} ({n_valid / n:.2f})")
     print(f"longest valid generated length: {np.max(valid_gen_lens) if len(valid_gen_lens) > 0 else np.nan:,}")
-    print(f"avg. valid generated length: {np.mean(valid_gen_lens):.3f} ± {np.std(valid_gen_lens):.3f}")
+    print(f"avg. valid generated length: {np.mean(valid_gen_lens):.3f} ± {np.std(valid_gen_lens):.3f}\n")
 
     pd.DataFrame(results_data).to_csv(out_fname)

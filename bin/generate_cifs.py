@@ -47,7 +47,11 @@ def generate(model_dir, seed, device, dtype, num_gens, temperature, top_k, chunk
     checkpoint = torch.load(ckpt_path, map_location=device)
     gptconf = GPTConfig(**checkpoint["model_args"])
     model = GPT(gptconf)
-    state_dict = checkpoint["model"]
+    try:
+        state_dict = checkpoint["best_model"]
+    except KeyError:
+        print("Could not find 'best_model' checkpoint, trying 'model' checkpoint")
+        state_dict = checkpoint["model"]
     unwanted_prefix = "_orig_mod."
     for k, v in list(state_dict.items()):
         if k.startswith(unwanted_prefix):
@@ -65,7 +69,7 @@ def generate(model_dir, seed, device, dtype, num_gens, temperature, top_k, chunk
                 x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
                 gens = []
                 for _ in range(num_gens):
-                    y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+                    y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k, disable_pbar=True)
                     output = decode(y[0].tolist())
                     gens.append(output)
                 generated.append((id, gens))
