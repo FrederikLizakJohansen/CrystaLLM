@@ -447,8 +447,9 @@ if __name__ == "__main__":
                     patience_counter += 1
                     print("Patience score increasing to:", patience_counter)
                 else:
-                    patience_counter = 0
-                    print("Patience score resetting.")
+                    if patience_counter > 0:
+                        print("Patience score resetting.")
+                        patience_counter = 0
 
                 best_val_loss = losses["val"] if C.validate else 0.
                 best_model_state = copy.deepcopy(model.state_dict())
