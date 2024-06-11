@@ -443,7 +443,7 @@ if __name__ == "__main__":
 
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 # Patience
-                if (C.validate and losses["val"] >= best_val_loss) and iter_num != 0:
+                if (C.validate and losses["val"] >= best_val_loss) and local_iter_num != 0:
                     patience_counter += 1
                     print("Patience score increasing to:", patience_counter)
                 else:
@@ -461,6 +461,7 @@ if __name__ == "__main__":
                         "best_optimizer": best_optimizer_state,
                         "model_args": model_args,
                         "iter_num": iter_num,
+                        "local_iter_num": local_iter_num,
                         "best_val_loss": best_val_loss,
                         "metrics": metrics,
                         "config": dict(C),
