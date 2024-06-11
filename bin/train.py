@@ -83,6 +83,7 @@ class TrainDefaults:
     underrep_p: float = 0.0
     validate: bool = False  # whether to evaluate the model using the validation set
     validate_generation: bool = False
+    validate_generation_start_iter: int = 0
     gen_iters_train: int = 2
     gen_iters_val: int = 2
     gen_max_new_tokens: int = 1000
@@ -426,20 +427,22 @@ if __name__ == "__main__":
                 print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
 
             if C.validate_generation:
-                
-                gen_RMSD, gen_HDD = generation_loss()
 
-                metrics['train_RMSD'].append(gen_RMSD['train'])
-                metrics['val_RMSD'].append(gen_RMSD['val'])
-                metrics['epoch_RMSD'].append(iter_num)
+                if iter_num >= C.validate_generation_start_iter:
+
+                    gen_RMSD, gen_HDD = generation_loss()
+
+                    metrics['train_RMSD'].append(gen_RMSD['train'])
+                    metrics['val_RMSD'].append(gen_RMSD['val'])
+                    metrics['epoch_RMSD'].append(iter_num)
+                        
+                    print(f"step {iter_num}: RMSD train {gen_RMSD['train']:.4f}, RMSD val {gen_RMSD['val']:.4f}", flush=True)
                     
-                print(f"step {iter_num}: RMSD train {gen_RMSD['train']:.4f}, RMSD val {gen_RMSD['val']:.4f}", flush=True)
-                
-                metrics['train_HDD'].append(gen_HDD['train'])
-                metrics['val_HDD'].append(gen_HDD['val'])
-                metrics['epoch_HDD'].append(iter_num)
-                    
-                print(f"step {iter_num}: HDD train {gen_HDD['train']:.4f}, HDD val {gen_HDD['val']:.4f}", flush=True)
+                    metrics['train_HDD'].append(gen_HDD['train'])
+                    metrics['val_HDD'].append(gen_HDD['val'])
+                    metrics['epoch_HDD'].append(iter_num)
+                        
+                    print(f"step {iter_num}: HDD train {gen_HDD['train']:.4f}, HDD val {gen_HDD['val']:.4f}", flush=True)
 
             if (C.validate and losses["val"] < best_val_loss) or C.always_save_checkpoint:
                 # Patience
