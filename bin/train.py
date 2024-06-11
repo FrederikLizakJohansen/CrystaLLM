@@ -92,6 +92,9 @@ class TrainDefaults:
     # Early stopping
     early_stopping_patience: int = 5
 
+    # Attention pattern
+    use_attn_pattern: bool = False
+
 
 def read_start_indices(
     max_start_index: int,
@@ -199,12 +202,12 @@ if __name__ == "__main__":
                 continue
 
             # Extract the ids, including the starting id (+1)
-            cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device='cuda').unsqueeze(0)
+            cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32)).to(device=C.device).unsqueeze(0)
             out.append(cond_ids)
 
         return out
 
-    def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False):
+    def get_batch(split: str, batch_size: int = C.batch_size, return_sample_idx: bool = False, att_pattern=[142, 142]):
 
         data = train_data if split == "train" else val_data
 
@@ -359,19 +362,14 @@ if __name__ == "__main__":
                 # Get batch
                 cond_batch = get_cond_batch(split, C.gen_batch_size)
                 rmsds, hdds = [], []
+
                 for cond_ids in cond_batch:
 
-                    # Convert cond ids into [x,y] array
-                    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
-                    decoded_cond = tokenizer.decode(cond_ids[0][:-1].cpu().tolist())
-                    matches = pattern.findall(decoded_cond)
-                    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
-                    
                     # Generate CIF
                     out = model.generate(cond_ids, max_new_tokens=C.gen_max_new_tokens, top_k=C.gen_top_k)
                     try:
                         output = tokenizer.decode(out[0][len(cond_ids[0])-1:].tolist())
-                        rmsd, hdd = calculate_metrics(prefix, output, scattering_lower_limit=scattering_lower_limit)
+                        rmsd, hdd = calculate_metrics(tokenizer.decode, cond_ids.squeeze(0), output, scattering_lower_limit=scattering_lower_limit)
                         rmsds.append(rmsd)
                         hdds.append(hdd)
                     except Exception as e:

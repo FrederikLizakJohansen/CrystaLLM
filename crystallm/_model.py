@@ -44,6 +44,7 @@ class GPTConfig:
     use_lora: bool = False
     lora_mlp: bool = False
     lora_proj: bool = False
+    use_attn_pattern: bool = False
 
 class LayerNorm(nn.Module):
 
@@ -89,7 +90,11 @@ class CausalSelfAttention(nn.Module):
             if config.lora_proj:
                 self.lora_proj = LoRALayer(config.n_embd, config.n_embd, rank=config.lora_rank)
 
-    def forward(self, x: Tensor) -> Tensor:
+        # Masked attention
+        self.masked_bias = torch.tensor(-1e4)
+
+
+    def forward(self, x: Tensor, attn_mask_pos: Tensor=None) -> Tensor:
         """
         Applies causal self-attention to the given tensor,
         with a mask to prevent attention to future positions.
@@ -114,24 +119,44 @@ class CausalSelfAttention(nn.Module):
             k = k + lora_k
             v = v + lora_v
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        if self.flash:
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout, is_causal=True)
+        if attn_mask_pos is None:
+            #causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+            if self.flash:
+                y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout, is_causal=True)
+            else:
+                # manual implementation of attention
+                att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+                att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float("-inf"))
+                att = F.softmax(att, dim=-1)
+                att = self.attn_dropout(att)
+                y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+            y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
         else:
-            # manual implementation of attention
+            combined_mask = torch.zeros(B, T, T, dtype=q.dtype, device=x.device)
+            causal_mask = torch.tril(torch.ones(B, T, T, device=x.device))
+
+            if attn_mask_pos is not None:
+                attn_mask = torch.ones(B, T, T, dtype=q.dtype, device=x.device)
+                for i, pos in enumerate(attn_mask_pos):
+                    if pos != -1:
+                        attn_mask[i,pos:,:pos] = 0.0
+
+                combined_mask = causal_mask * attn_mask
+            else:
+                combined_mask = causal_mask
+            
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float("-inf"))
+            att = att.masked_fill(combined_mask.unsqueeze(1) == 0, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
+            y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
         if self.config.use_lora and self.config.lora_proj:
             y = self.resid_dropout(self.c_proj(y) + self.lora_proj(y))
         else:
             y = self.resid_dropout(self.c_proj(y))
         return y
-
 
 def gelu(x: Tensor) -> Tensor:
     """
@@ -183,7 +208,7 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, attn_mask_pos: Tensor=None) -> Tensor:
         """
         Forward pass for the Transformer Block module. A Block module includes causal self-attention,
         layer normalization, and MLP, and residual connections.
@@ -191,7 +216,7 @@ class Block(nn.Module):
         :param x: input to the transformer block
         :returns: output of the transformer block, with the same shape as in the input
         """
-        x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(self.ln_1(x), attn_mask_pos)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -247,19 +272,60 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    
+    def create_attention_mask(self, batch, pattern):
+        batch_size, seq_len = batch.size()
+        mask = torch.zeros(batch_size, seq_len, dtype=torch.float16)
+
+        for i in range(batch_size):
+            # Find the position of the pattern in the sequence
+            pos = -1
+            for j in range(seq_len - len(pattern) + 1):
+                if torch.equal(batch[i, j:j+len(pattern)], pattern):
+                    pos = j
+                    break
+
+            # Create the mask for this sequence
+            if pos != -1:
+                mask[i, pos:] = 1.0
+
+        return mask
+
+    def create_attention_mask_pos(self, idx, pattern):
+        batch_size, seq_len = idx.size()
+
+        positions = torch.zeros(batch_size, dtype=torch.long)
+
+        for i in range(batch_size):
+
+            pos = -1
+            for j in range(seq_len - len(pattern) + 1):
+                if torch.equal(idx[i, j:j+len(pattern)], pattern):
+                    pos = j
+                    break
+
+            positions[i] = pos
+        return positions
 
     def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
+        
+        # attention mask
+        if self.config.use_attn_pattern:
+            pattern_tensor = torch.tensor([142, 142], dtype=torch.long).to(idx.device)
+            attn_mask_pos = self.create_attention_mask_pos(idx, pattern_tensor)
+        else:
+            attn_mask_pos = None
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, attn_mask_pos)
         x = self.transformer.ln_f(x)
 
         if targets is not None:

@@ -212,7 +212,7 @@ def process_cif(
 
     cif = '\n'.join(cif_lines)
 
-    if args.clean:
+    if config.clean:
         if not is_valid(cif, bond_length_acceptability_cutoff=0.0):
             return None, None, None
 

@@ -190,7 +190,13 @@ def calculate_hdd_prefix_cif(prefix, cif, scattering_lower_limit=None):
 
     return rmsd, hausdorff_distance
 
-def calculate_metrics(prefix, cif, scattering_lower_limit=None):
+def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
+                    
+    # Convert cond ids into [x,y] array
+    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
+    decoded_cond = decode(cond_ids.tolist())
+    matches = pattern.findall(decoded_cond)
+    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
     
     space_group_symbol = extract_space_group_symbol(cif)
     if space_group_symbol is not None and space_group_symbol != "P 1":
@@ -226,6 +232,14 @@ def calculate_metrics(prefix, cif, scattering_lower_limit=None):
     forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
     backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
     hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
+    
+    # Interpolate intensities to a common set of positions
+    common_positions = np.union1d(pos1, pos2)
+    intens1_interpolated = np.interp(common_positions, pos1, intens1)
+    intens2_interpolated = np.interp(common_positions, pos2, intens2)
+
+    # Calculate RMSD
+    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
 
     return rmsd, hausdorff_distance
 
@@ -356,32 +370,28 @@ def generate_samples(config):
 
                     # Extract the ids, including the starting id (+1)
                     cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32))
+                    cond_ids_len = len(cond_ids) - 1
 
-                    # Add custom composition
+                    # Add custom composition and spacegroup
                     composition = [] if config.composition == "" else encode(tokenizer.tokenize_cif(config.composition)) + encode(["\n"])
-                    spacegroup = [] if config.spacegroup == "" else encode(["_symmetry_space_group_name_H-M"," "]) + encode(tokenizer.tokenize_cif(config.spacegroup)) + encode(["\n"])
+                    cond_ids_with_prompt = torch.cat((cond_ids, torch.tensor(composition, dtype=torch.long)))
+                    
+                    #spacegroup = [] if config.spacegroup == "" else encode(["_symmetry_space_group_name_H-M"," "]) + encode(tokenizer.tokenize_cif(config.spacegroup)) + encode(["\n"])
+                    #cond_ids_with_prompt = torch.cat((cond_ids_with_prompt, torch.tensor(spacegroup, dtype=torch.long)))
 
-                    cond_ids = torch.cat((cond_ids, torch.tensor(composition, dtype=torch.long)))
-                    cond_ids = torch.cat((cond_ids, torch.tensor(spacegroup, dtype=torch.long)))
-
-                    cond_ids = cond_ids.to(device=config.device).unsqueeze(0)
-
-                    # Convert cond ids into [x,y] array
-                    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
-                    decoded_cond = decode(cond_ids[0][:-1].cpu().tolist())
-                    matches = pattern.findall(decoded_cond)
-                    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
+                    cond_ids_with_prompt = cond_ids_with_prompt.to(device=config.device).unsqueeze(0)
                     
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
-                        out = model.generate_and_print(cond_ids, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate_and_print(cond_ids_with_prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
 
                         # Fit
                         if config.fit_xrd:
                             try:
-                                output = decode(out[0][len(cond_ids[0])-1:].tolist())
-                                rmsd, hdd = calculate_metrics(prefix, output, scattering_lower_limit=config.scattering_lower_limit)
+                                output = decode(out[0][cond_ids_len:].tolist())
+                                rmsd, hdd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
                             except Exception as e:
+                                raise e
                                 rmsd = 'NaN'
                                 hdd = 'NaN'
                             print()

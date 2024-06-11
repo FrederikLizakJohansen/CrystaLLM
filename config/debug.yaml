@@ -1,7 +1,7 @@
-out_dir: 'debug_patience'
+out_dir: 'debug_attention_mask_6'
 eval_interval: 10  # how often to evaluate against the validation set
-eval_iters_train: 10
-eval_iters_val: 10
+eval_iters_train: 200
+eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
 init_from: 'scratch'
 
@@ -15,25 +15,31 @@ always_save_checkpoint: True
 
 # whether to validate with a validation set
 validate: True
-validate_generation: False
 
-dataset: 'datasets/v1_train_3k_nocond'
-batch_size: 8
-block_size: 512
+dataset: 'datasets/crystallm_test_cond'
+batch_size: 16
+block_size: 1024
 
-n_layer: 2
-n_head: 2
+n_layer: 8
+n_head: 8
 n_embd: 512
 dropout: 0.0
 
 learning_rate: 5e-3
-max_iters: 100_000
-lr_decay_iters: 100_000
+max_iters: 5_000
+lr_decay_iters: 5_000
 min_lr: 1e-4
 beta2: 0.99
 
 warmup_iters: 100
 
-use_lora: False
+early_stopping_patience: 3
 
-early_stopping_patience: 2
+validate_generation: True
+gen_iters_train: 1
+gen_iters_val: 1
+gen_max_new_tokens: 500
+gen_top_k: 10
+gen_batch_size: 2
+
+use_attn_pattern: False
