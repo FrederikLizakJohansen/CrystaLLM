@@ -240,7 +240,6 @@ def process_cif(
 
         return ids, fname, len(ids)
     except Exception as e:
-        raise e
         return None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
