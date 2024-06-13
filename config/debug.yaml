@@ -1,4 +1,4 @@
-out_dir: 'debug_attention_mask_6'
+out_dir: 'CHILI-3K_cond_new'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,16 +16,16 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/crystallm_test_cond'
+dataset: 'datasets/CHILI-3K_cond'
 batch_size: 16
-block_size: 1024
+block_size: 512
 
-n_layer: 8
-n_head: 8
+n_layer: 2
+n_head: 4
 n_embd: 512
-dropout: 0.0
+dropout: 0.1
 
-learning_rate: 5e-3
+learning_rate: 1e-3
 max_iters: 5_000
 lr_decay_iters: 5_000
 min_lr: 1e-4

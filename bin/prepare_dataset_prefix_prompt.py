@@ -80,6 +80,13 @@ class DefaultDatasetConfig:
 
     clean: bool = False
 
+    round_cond_to: int = 4
+
+def round_and_pad(number, decimals):
+    rounded_number = np.around(number, decimals)
+    format_string = f"{{:.{decimals}f}}"
+    return format_string.format(rounded_number)
+
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
 
@@ -105,7 +112,7 @@ def get_reflections(cif_content, scattering_lower_limit = None):
             y = out.y[mask]
 
         q = tth_to_q(x, calc.wavelength)
-        I = y
+        I = y / 100
 
     except Exception as e:
         print(e)
@@ -233,8 +240,10 @@ def process_cif(
             prefix_x, prefix_y = get_reflections(symm_cif, config.scattering_lower_limit)
             prefix_ids = []
             for px, py in zip(prefix_x, prefix_y):
-                px_id = tokenizer.encode(str(np.around(px,2)))
-                py_id = tokenizer.encode(str(np.around(py,2)))
+                #px_id = tokenizer.encode(str(np.around(px,2)))
+                #py_id = tokenizer.encode(str(np.around(py,2)))
+                px_id = tokenizer.encode(round_and_pad(px, config.round_cond_to))
+                py_id = tokenizer.encode(round_and_pad(py, config.round_cond_to))
                 prefix_ids.extend([i for i in px_id])
                 prefix_ids.extend(comma_id)
                 prefix_ids.extend([i for i in py_id])
