@@ -29,6 +29,8 @@ from pymatgen.core.operations import SymmOp
 
 from pymatgen.analysis.diffraction.xrd import XRDCalculator
 
+import matplotlib.pyplot as plt
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -190,6 +192,9 @@ def calculate_hdd_prefix_cif(prefix, cif, scattering_lower_limit=None):
 
     return rmsd, hausdorff_distance
 
+def tth_to_q(tth, wl):
+    return (4 * np.pi / wl) * np.sin(np.radians(tth) / 2)
+
 def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
                     
     # Convert cond ids into [x,y] array
@@ -213,10 +218,10 @@ def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
 
     if scattering_lower_limit is not None:
         mask = pattern.y >= scattering_lower_limit
-        x = pattern.x[mask]
+        x = tth_to_q(pattern.x[mask], calc.wavelength)
         y = pattern.y[mask]
     else:
-        x = pattern.x
+        x = tth_to_q(pattern.x, calc.wavelength)
         y = pattern.y
 
     # Unpack
@@ -241,7 +246,7 @@ def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
     # Calculate RMSD
     rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
 
-    return rmsd, hausdorff_distance
+    return rmsd, hausdorff_distance, pos1, intens1, pos2, intens2
 
 def get_data(config):
     
@@ -389,7 +394,20 @@ def generate_samples(config):
                         if config.fit_xrd:
                             try:
                                 output = decode(out[0][cond_ids_len:].tolist())
-                                rmsd, hdd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
+                                rmsd, hdd, *xrd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
+
+                                if config.plot_xrd:
+                                    fig, (ax1, ax2) = plt.subplots(2,1, sharey=True)
+                                    ax1.bar(xrd[0], xrd[1], width=0.05, label='Original')
+                                    ax2.bar(xrd[2], xrd[3], width=0.05, label='Generated')
+                                    for ax in [ax1, ax2]:
+                                        ax.legend()
+                                        ax.grid(alpha=0.2)
+                                        ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
+                                    ax2.set_xlim(*ax1.get_xlim())
+                                    fig.tight_layout()
+                                    plt.show()
+                                
                             except Exception as e:
                                 raise e
                                 rmsd = 'NaN'
