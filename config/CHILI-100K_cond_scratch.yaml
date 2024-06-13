@@ -1,9 +1,9 @@
-out_dir: 'v1_small_CHILI-3K_lora_r2'
-eval_interval: 10  # how often to evaluate against the validation set
+out_dir: 'CHILI-100K_cond_scratch'
+eval_interval: 100  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'finetune'
+init_from: 'scratch'
 
 device: 'cuda'
 compile: True
@@ -15,9 +15,8 @@ always_save_checkpoint: True
 
 # whether to validate with a validation set
 validate: True
-validate_generation: False
 
-dataset: 'datasets/CHILI-3K_nocond'
+dataset: 'datasets/CHILI-100K_cond'
 batch_size: 32
 block_size: 1024
 
@@ -26,15 +25,20 @@ n_head: 8
 n_embd: 512
 dropout: 0.1
 
-learning_rate: 5e-4
-max_iters: 105_000
-lr_decay_iters: 105_000
+learning_rate: 1e-3
+max_iters: 100_000
+lr_decay_iters: 100_000
 min_lr: 1e-4
 beta2: 0.99
 
 warmup_iters: 100
 
-use_lora: True
-lora_rank: 2
+early_stopping_patience: 5
 
-early_stopping_patience: 3
+validate_generation: True
+validate_generation_start_iter: 800
+gen_iters_train: 2
+gen_iters_val: 2
+gen_max_new_tokens: 800
+gen_top_k: 10
+gen_batch_size: 16
