@@ -87,7 +87,11 @@ def get_reflections(cif_content, scattering_lower_limit = None):
 
     # Make structure
     try:
-        parser = CifParser.from_string(cif_content)
+        try:
+            parser = CifParser.from_string(cif_content)
+        except:
+            parser = CifParser.from_str(cif_content)
+
         structure = parser.get_structures()[0]
 
         # Make calculator

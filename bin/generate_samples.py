@@ -251,12 +251,12 @@ def get_data(config):
     # Load Model
     model = load_model(config)
 
-    # Open meta data and get cond_len
-    meta_path = os.path.join(config.dataset_dir, "meta.pkl")
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-
     try:
+        # Open meta data and get cond_len
+        meta_path = os.path.join(config.dataset_dir, "meta.pkl")
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+
         config.scattering_lower_limit = meta["scattering_lower_limit"]
     except Exception:
         print(f"Could not find scattering lower limit in meta-data, defaulting to {config.scattering_lower_limit}")
@@ -300,12 +300,12 @@ def generate_samples(config):
     # Load Model
     model = load_model(config)
 
-    # Open meta data and get cond_len
-    meta_path = os.path.join(config.dataset_dir, "meta.pkl")
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-
     try:
+        # Open meta data and get cond_len
+        meta_path = os.path.join(config.dataset_dir, "meta.pkl")
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+
         config.scattering_lower_limit = meta["scattering_lower_limit"]
     except Exception:
         print(f"Could not find scattering lower limit in meta-data, defaulting to {config.scattering_lower_limit}")
