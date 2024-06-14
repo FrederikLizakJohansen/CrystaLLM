@@ -309,7 +309,7 @@ if __name__ == "__main__":
         metrics = {}
         for key in metrics_variables:
             try:
-                metrics[key] = checkpoint[key]
+                metrics[key] = checkpoint['metrics'][key]
                 print(f"Loaded {key}.")
             except:
                 metrics[key] = []
