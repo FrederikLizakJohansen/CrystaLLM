@@ -1,4 +1,4 @@
-out_dir: 'CHILI-3K_cond_new'
+out_dir: 'debug_metrics'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -17,11 +17,11 @@ always_save_checkpoint: True
 validate: True
 
 dataset: 'datasets/CHILI-3K_cond'
-batch_size: 16
+batch_size: 4
 block_size: 512
 
 n_layer: 2
-n_head: 4
+n_head: 2
 n_embd: 512
 dropout: 0.1
 
@@ -36,10 +36,10 @@ warmup_iters: 100
 early_stopping_patience: 3
 
 validate_generation: True
-gen_iters_train: 1
-gen_iters_val: 1
-gen_max_new_tokens: 500
+gen_iters_train: 2
+gen_iters_val: 2
+gen_max_new_tokens: 800
 gen_top_k: 10
-gen_batch_size: 2
+gen_batch_size: 16
 
 use_attn_pattern: False

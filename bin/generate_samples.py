@@ -219,10 +219,10 @@ def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
     if scattering_lower_limit is not None:
         mask = pattern.y >= scattering_lower_limit
         x = tth_to_q(pattern.x[mask], calc.wavelength)
-        y = pattern.y[mask]
+        y = pattern.y[mask] / 100
     else:
         x = tth_to_q(pattern.x, calc.wavelength)
-        y = pattern.y
+        y = pattern.y / 100
 
     # Unpack
     pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
@@ -343,6 +343,8 @@ def generate_samples(config):
 
     # Get index of "data_"
     cif_start_id = tokenizer.token_to_id["data_"]
+    new_line_id = tokenizer.token_to_id["\n"]
+    spacegroup_id = tokenizer.token_to_id["_symmetry_space_group_name_H-M"]
     
     # Generate structures and cif strings
     with torch.no_grad():
@@ -369,26 +371,46 @@ def generate_samples(config):
 
                     # Find the index of the first occurance of cif_start_id
                     try:
-                        end_index = np.where(sliced_data == cif_start_id)[0][0]
+                        end_index = np.where(sliced_data == cif_start_id)[0][0] + 1
+
+                        # Extract xrd conditioning
+                        cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
+                        cond_ids_len = len(cond_ids) - 1
+
+                        if config.add_composition:
+                            end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # + up to 1st occ of new line
+                            
+                            if config.add_spacegroup:
+                                end_index += np.where(sliced_data[end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
+                                end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
+
+                        #if config.add_composition and not config.add_spacegroup:
+                        #    end_index = np.where(sliced_data[data_index:] == new_line_id)[0][0]
+                        #elif config.add_composition and config.add_spacegroup:
+                        #    spacegroup_index = np.where(sliced_data[data_index:data_index+config.cond_window] == spacegroup_id)[0][0]
+                        #    new_line_index = np.where(sliced_data[spacegroup_index:spacegroup_index+config_window] == new_line_id)[0][0]
+                        #    end_index = spacegroup + new_line_index
+
                     except IndexError:
                         raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
 
                     # Extract the ids, including the starting id (+1)
-                    cond_ids = torch.tensor(sliced_data[:end_index + 1].astype(np.int32))
-                    cond_ids_len = len(cond_ids) - 1
+                    #cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
 
                     # Add custom composition and spacegroup
-                    composition = [] if config.composition == "" else encode(tokenizer.tokenize_cif(config.composition)) + encode(["\n"])
-                    cond_ids_with_prompt = torch.cat((cond_ids, torch.tensor(composition, dtype=torch.long)))
-                    
+                    #composition = [] if config.composition == "" else encode(tokenizer.tokenize_cif(config.composition)) + encode(["\n"])
+                    #cond_ids_with_prompt = torch.cat((cond_ids, torch.tensor(composition, dtype=torch.long)))
+
+                    # Add custom spacegroup
                     #spacegroup = [] if config.spacegroup == "" else encode(["_symmetry_space_group_name_H-M"," "]) + encode(tokenizer.tokenize_cif(config.spacegroup)) + encode(["\n"])
                     #cond_ids_with_prompt = torch.cat((cond_ids_with_prompt, torch.tensor(spacegroup, dtype=torch.long)))
 
-                    cond_ids_with_prompt = cond_ids_with_prompt.to(device=config.device).unsqueeze(0)
+                    #cond_ids_with_prompt = cond_ids_with_prompt.to(device=config.device).unsqueeze(0)
+                    prompt = torch.tensor(sliced_data[:end_index].astype(np.int32)).to(device=config.device).unsqueeze(0)
                     
                     if print_to_consol:
                         print("Generation no.", j+1, ":")
-                        out = model.generate_and_print(cond_ids_with_prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate_and_print(prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
 
                         # Fit
                         if config.fit_xrd:
@@ -397,19 +419,15 @@ def generate_samples(config):
                                 rmsd, hdd, *xrd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
 
                                 if config.plot_xrd:
-                                    fig, (ax1, ax2) = plt.subplots(2,1, sharey=True)
-                                    ax1.bar(xrd[0], xrd[1], width=0.05, label='Original')
-                                    ax2.bar(xrd[2], xrd[3], width=0.05, label='Generated')
-                                    for ax in [ax1, ax2]:
-                                        ax.legend()
-                                        ax.grid(alpha=0.2)
-                                        ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
-                                    ax2.set_xlim(*ax1.get_xlim())
-                                    fig.tight_layout()
+                                    fig, ax = plt.subplots()
+                                    ax.bar(xrd[0], xrd[1], width=0.02, label='Original')
+                                    ax.bar(xrd[2], xrd[3], width=0.02, label='Generated')
+                                    ax.legend()
+                                    ax.grid(alpha=0.2)
+                                    ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
                                     plt.show()
                                 
                             except Exception as e:
-                                raise e
                                 rmsd = 'NaN'
                                 hdd = 'NaN'
                             print()
@@ -417,7 +435,24 @@ def generate_samples(config):
                             print(f'HDD: {rmsd}')
                         print()
                     else:
-                        out = model.generate(cond_ids, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
+                        out = model.generate(prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k, disable_pbar=True)
+                        if config.plot_xrd:
+                            try:
+                                output = decode(out[0][cond_ids_len:].tolist())
+                                rmsd, hdd, *xrd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
+                                fig, ax = plt.subplots()
+                                ax.bar(xrd[0], xrd[1], width=0.02, label='Original')
+                                ax.bar(xrd[2], xrd[3], width=0.02, label='Generated')
+                                ax.legend()
+                                ax.grid(alpha=0.2)
+                                ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
+                                plt.show()
+                            except:
+                                rmsd = 'NaN'
+                                hdd = 'NaN'
+                            print()
+                            print(f'RMSD: {rmsd}')
+                            print(f'HDD: {rmsd}')
                     output = decode(out[0].tolist())
 
                     # Postprocess
@@ -462,6 +497,8 @@ class SampleDefaults:
     n_data: int = 0 # Default 0 is all data
     composition: str = ""
     spacegroup: str = ""
+    add_composition: bool = False
+    add_spacegroup: bool = False
     debug_max: int = None
     post_process: bool = False
     encode_prefix: bool = False
@@ -486,6 +523,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_data", type=int)
     parser.add_argument("--composition", type=str)
     parser.add_argument("--spacegroup", type=str)
+    parser.add_argument("--add_composition", action='store_true')
+    parser.add_argument("--add_spacegroup", action='store_true')
     parser.add_argument("--debug_max", type=int)
     parser.add_argument("--post_process", action='store_true')
     parser.add_argument("--encode_prefix", action='store_true')

@@ -370,7 +370,7 @@ if __name__ == "__main__":
                     out = model.generate(cond_ids, max_new_tokens=C.gen_max_new_tokens, top_k=C.gen_top_k)
                     try:
                         output = tokenizer.decode(out[0][len(cond_ids[0])-1:].tolist())
-                        rmsd, hdd = calculate_metrics(tokenizer.decode, cond_ids.squeeze(0), output, scattering_lower_limit=scattering_lower_limit)
+                        rmsd, hdd, *_ = calculate_metrics(tokenizer.decode, cond_ids.squeeze(0), output, scattering_lower_limit=scattering_lower_limit)
                         rmsds.append(rmsd)
                         hdds.append(hdd)
                     except Exception as e:
