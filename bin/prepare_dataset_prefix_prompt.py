@@ -250,6 +250,8 @@ def process_cif(
                 prefix_ids.extend(new_line_id)
 
             ids = prefix_ids + ids + new_line_id + new_line_id
+        else:
+            ids = ids + new_line_id + new_line_id
 
         return ids, fname, len(ids)
     except Exception as e:
