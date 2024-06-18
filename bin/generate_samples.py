@@ -406,7 +406,7 @@ def generate_samples(config):
                     #cond_ids_with_prompt = torch.cat((cond_ids_with_prompt, torch.tensor(spacegroup, dtype=torch.long)))
 
                     #cond_ids_with_prompt = cond_ids_with_prompt.to(device=config.device).unsqueeze(0)
-                    prompt = torch.tensor(sliced_data[:end_index].astype(np.int32)).to(device=config.device).unsqueeze(0)
+                    prompt = torch.tensor(sliced_data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
                     
                     if print_to_consol:
                         print("Generation no.", j+1, ":")

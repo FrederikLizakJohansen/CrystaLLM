@@ -1,9 +1,9 @@
-out_dir: 'debug_metrics'
+out_dir: 'debug_CHILI-100K'
 eval_interval: 10  # how often to evaluate against the validation set
-eval_iters_train: 200
-eval_iters_val: 200
+eval_iters_train: 10
+eval_iters_val: 10
 log_interval: 1  # how often to print to the console (1 = every iteration)
-init_from: 'scratch'
+init_from: 'finetune'
 
 device: 'cuda'
 compile: True
@@ -16,26 +16,29 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-3K_cond'
-batch_size: 4
-block_size: 512
+dataset: 'datasets/CHILI-100K_nocond'
+batch_size: 32
+block_size: 1024
 
-n_layer: 2
-n_head: 2
+n_layer: 8
+n_head: 8
 n_embd: 512
 dropout: 0.1
 
-learning_rate: 1e-3
-max_iters: 5_000
-lr_decay_iters: 5_000
-min_lr: 1e-4
+learning_rate: 5e-5
+max_iters: 101_000
+lr_decay_iters: 101_000
+min_lr: 1e-5
 beta2: 0.99
 
 warmup_iters: 100
 
 early_stopping_patience: 3
 
-validate_generation: True
+use_lora: True
+lora_rank: 2
+
+validate_generation: False
 gen_iters_train: 2
 gen_iters_val: 2
 gen_max_new_tokens: 800
