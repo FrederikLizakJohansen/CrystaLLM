@@ -82,6 +82,10 @@ class DefaultDatasetConfig:
 
     round_cond_to: int = 4
 
+    shuffle: bool = True
+
+    len_limit: Any = None
+
 def round_and_pad(number, decimals):
     rounded_number = np.around(number, decimals)
     format_string = f"{{:.{decimals}f}}"
@@ -175,7 +179,8 @@ def prepare_split(
     with gzip.open(config.cif_pkl, "rb") as f:
         cifs = pickle.load(f)
     cifs = cifs[:config.debug_max]
-    #random.shuffle(cifs)
+    if config.shuffle:
+        random.shuffle(cifs)
     train_end = int((1.0 - config.val_size - config.test_size) * len(cifs))
     val_end = train_end + int(config.val_size * len(cifs))
     
@@ -232,6 +237,12 @@ def process_cif(
     
     try:
         tokens = tokenizer.tokenize_cif(cif)
+        
+        if config.len_limit is not None:
+            if len(tokens) < config.len_limit[0] or len(tokens) > config.len_limit[1]:
+                print(len(tokens))
+                return None, None, None
+    
         new_line_id = tokenizer.encode("\n")
         comma_id = tokenizer.encode(",")
         ids = tokenizer.encode(tokens)
@@ -255,6 +266,7 @@ def process_cif(
 
         return ids, fname, len(ids)
     except Exception as e:
+        print(e)
         return None, None, None
 
 def save_dataset_parallel(config, cifs, bin_prefix):
@@ -297,8 +309,14 @@ if __name__ == "__main__":
     argparser.add_argument('--scattering_lower_limit', type=float)
     argparser.add_argument('--exclude_cond', action='store_true')
     argparser.add_argument('--clean', action='store_true')
+    argparser.add_argument('--no_shuffle', action='store_false')
+    argparser.add_argument('--len_limit', nargs='+')
 
     args = argparser.parse_args()
+
+    if args.len_limit is not None:
+        assert len(args.len_limit) == 2
+        args.len_limit = [int(args.len_limit[0]), int(args.len_limit[1])]
 
     # Parse yaml
     config = DefaultDatasetConfig()

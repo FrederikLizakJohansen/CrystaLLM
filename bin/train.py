@@ -449,11 +449,10 @@ if __name__ == "__main__":
                     patience_counter += 1
                     print("Patience score increasing to:", patience_counter)
                     print()
-                elif losses["val"] <= best_val_loss:
+                else:
                     best_val_loss = losses["val"]
                     best_model_state = copy.deepcopy(model.state_dict())
                     best_optimizer_state = copy.deepcopy(optimizer.state_dict())
-                else:
                     if patience_counter > 0:
                         print("Patience score resetting.")
                         patience_counter = 0
