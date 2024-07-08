@@ -240,7 +240,6 @@ def process_cif(
         
         if config.len_limit is not None:
             if len(tokens) < config.len_limit[0] or len(tokens) > config.len_limit[1]:
-                print(len(tokens))
                 return None, None, None
     
         new_line_id = tokenizer.encode("\n")

@@ -1,4 +1,4 @@
-out_dir: 'CHILI-100K_nooxi_dedup_nocond_scratch'
+out_dir: 'CHILI-100K_nocond_scratch_len_800_plus'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-100K_nooxi_dedup_nocond'
+dataset: 'datasets/CHILI-100K_nocond_len_800_plus'
 batch_size: 32
 block_size: 1024
 
