@@ -9,8 +9,9 @@ import yaml
 import gzip
 import math
 import random
+import json
 from glob import glob
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, Any
 import numpy as np
 from tqdm.auto import tqdm
@@ -209,7 +210,7 @@ def prepare_split(
     with open(os.path.join(config.dataset_path, 'meta.pkl'), "wb") as f:
         pickle.dump(meta, f)
 
-    return cifs_train, cifs_val, cifs_test
+    return cifs_train, cifs_val, cifs_test, meta
 
 def process_cif(
     args,
@@ -295,6 +296,7 @@ def save_dataset_parallel(config, cifs, bin_prefix):
         for fname, cif in cifs:
             f.write(fname + '\n')
 
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='Script for generating deCIFer dataset')
     argparser.add_argument('--scattering_type', type=str)
@@ -324,9 +326,14 @@ if __name__ == "__main__":
         if value is not None:
             setattr(config, key, value)
 
-    cifs_train, cifs_val, cifs_test = prepare_split(config)
+    cifs_train, cifs_val, cifs_test, meta = prepare_split(config)
 
     save_dataset_parallel(config, cifs_train, 'train')
     save_dataset_parallel(config, cifs_val, 'val')
     save_dataset_parallel(config, cifs_test, 'test')
+    
+    # Save meta data
+    meta_data = {**asdict(config), **meta}
+    with open(os.path.join(config.dataset_path, 'meta.json'), 'w') as json_file:
+        json.dump(meta_data, json_file, indent=4)
 

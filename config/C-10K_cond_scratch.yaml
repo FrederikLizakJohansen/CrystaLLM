@@ -1,0 +1,44 @@
+out_dir: 'C-10K_cond_scratch'
+eval_interval: 10  # how often to evaluate against the validation set
+eval_iters_train: 200
+eval_iters_val: 200
+log_interval: 1  # how often to print to the console (1 = every iteration)
+init_from: 'scratch'
+
+device: 'cuda'
+compile: True
+
+dtype: 'float16'
+
+# whether to always save a checkpoint
+always_save_checkpoint: True
+
+# whether to validate with a validation set
+validate: True
+
+dataset: 'datasets/C-10K_cond'
+batch_size: 16
+block_size: 1024
+
+n_layer: 8
+n_head: 8
+n_embd: 512
+dropout: 0.1
+
+learning_rate: 1e-3
+max_iters: 100_000
+lr_decay_iters: 100_000
+min_lr: 1e-4
+beta2: 0.99
+
+warmup_iters: 100
+
+early_stopping_patience: 5
+
+validate_generation: True
+validate_generation_start_iter: 0
+gen_iters_train: 1
+gen_iters_val: 1
+gen_max_new_tokens: 1000
+gen_top_k: 10
+gen_batch_size: 128
