@@ -1,4 +1,4 @@
-out_dir: 'C-10K_cond_scratch'
+out_dir: '../experiments/CrystaLLM/scratch/conditioned_prefix/small_C-100'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,7 +16,7 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/C-10K_cond'
+dataset: '../data/CrystaLLM/datasets/conditioned_prefix_100'
 batch_size: 16
 block_size: 1024
 
@@ -39,6 +39,6 @@ validate_generation: True
 validate_generation_start_iter: 0
 gen_iters_train: 1
 gen_iters_val: 1
-gen_max_new_tokens: 1000
+gen_max_new_tokens: 3000
 gen_top_k: 10
-gen_batch_size: 128
+gen_batch_size: 8

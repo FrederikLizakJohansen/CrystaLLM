@@ -76,6 +76,7 @@ class DefaultDatasetConfig:
     pl: bool = False
 
     scattering_lower_limit: float = 5.0
+    number_limit: int = 10
 
     exclude_cond: bool = False
 
@@ -95,7 +96,7 @@ def round_and_pad(number, decimals):
 def tth_to_q(tth, wavelength):
     return (4 * np.pi / wavelength) * np.sin(np.radians(tth) / 2)
 
-def get_reflections(cif_content, scattering_lower_limit = None):
+def get_reflections(cif_content, scattering_lower_limit = None, number_limit = None):
 
     # Make structure
     try:
@@ -115,6 +116,11 @@ def get_reflections(cif_content, scattering_lower_limit = None):
             mask = out.y >= scattering_lower_limit
             x = out.x[mask]
             y = out.y[mask]
+
+        if number_limit is not None:
+            mask = np.argsort(y)[-number_limit:]
+            x = x[mask]
+            y = y[mask]
 
         q = tth_to_q(x, calc.wavelength)
         I = y / 100
@@ -248,7 +254,7 @@ def process_cif(
         ids = tokenizer.encode(tokens)
     
         if not config.exclude_cond:
-            prefix_x, prefix_y = get_reflections(symm_cif, config.scattering_lower_limit)
+            prefix_x, prefix_y = get_reflections(symm_cif, config.scattering_lower_limit, config.number_limit)
             prefix_ids = []
             for px, py in zip(prefix_x, prefix_y):
                 #px_id = tokenizer.encode(str(np.around(px,2)))
@@ -308,6 +314,7 @@ if __name__ == "__main__":
     argparser.add_argument('--output', type=str)
     argparser.add_argument('--dataset_name', type=str)
     argparser.add_argument('--scattering_lower_limit', type=float)
+    argparser.add_argument('--number_limit', type=int)
     argparser.add_argument('--exclude_cond', action='store_true')
     argparser.add_argument('--clean', action='store_true')
     argparser.add_argument('--no_shuffle', action='store_false')
