@@ -211,6 +211,7 @@ def prepare_split(
         "token_to_id": tokenizer.token_to_id,
         "scattering_type": config.scattering_type,
         "scattering_lower_limit": config.scattering_lower_limit,
+        "number_limit": config.number_limit,
         "cond_included": not config.exclude_cond,
     }
     with open(os.path.join(config.dataset_path, 'meta.pkl'), "wb") as f:

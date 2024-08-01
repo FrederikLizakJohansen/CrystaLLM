@@ -82,6 +82,7 @@ class TrainDefaults:
     compile: bool = True  # use PyTorch 2.0 to compile the model to be faster
     underrep_p: float = 0.0
     validate: bool = False  # whether to evaluate the model using the validation set
+
     validate_generation: bool = False
     validate_generation_start_iter: int = 0
     gen_iters_train: int = 2
@@ -148,6 +149,7 @@ if __name__ == "__main__":
         cif_vocab_size = meta['cif_vocab_size']
         scattering_type = meta['scattering_type']
         scattering_lower_limit = meta['scattering_lower_limit']
+        number_limit = meta['number_limit']
 
         print(f"Found cif_vocab_size = {cif_vocab_size} (inside {meta_path})", flush=True)
         print(f"Found scattering_type = {scattering_type} (inside {meta_path})", flush=True)
@@ -367,15 +369,19 @@ if __name__ == "__main__":
                 for cond_ids in cond_batch:
 
                     # Generate CIF
-                    out = model.generate(cond_ids, max_new_tokens=C.gen_max_new_tokens, top_k=C.gen_top_k)
+                    gen_cif_ids = model.generate(cond_ids, max_new_tokens=C.gen_max_new_tokens, top_k=C.gen_top_k)
                     try:
-                        output = tokenizer.decode(out[0][len(cond_ids[0])-1:].tolist())
-                        rmsd, hdd, *_ = calculate_metrics(tokenizer.decode, cond_ids.squeeze(0), output, scattering_lower_limit=scattering_lower_limit)
+                        # Decode cond and gen_cif
+                        cond = decode(cond_ids.tolist())
+                        gen_cif = decode(gen_cif_ids[0][len(cond_ids)-1:].tolist())
+                        # Calculate metrics
+                        rmsd, hdd, *_ = calculate_metrics(cond, gen_cif, scattering_lower_limit=scattering_lower_limit, number_limit=number_limit)
+
                         rmsds.append(rmsd)
                         hdds.append(hdd)
                     except Exception as e:
-                        rmsds.append(100)
-                        hdds.append(100)
+                        rmsds.append(1)
+                        hdds.append(10)
 
                 RMSDs[k] = np.mean(rmsds)
                 HDDs[k] = np.mean(hdds)

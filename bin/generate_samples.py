@@ -82,117 +82,6 @@ def load_model(config):
 
     return model
 
-#def calculate_rmsd_cif(cif_content1, cif_content2):
-#    
-#    calc = XRDCalculator(symprec=0.1)
-#    parser = CifParser()
-#    
-#    # CIF 1
-#    parser.from_string(cif_content1)
-#    structure1 = parser.get_structures()[0]
-#    pattern1 = calc.get_pattern(structure1)
-#
-#    # CIF 2
-#    parser.from_string(cif_content2)
-#    structure2 = parser.get_structures()[0]
-#    pattern2 = calc.get_pattern(structure2)
-#
-#    # Unpack
-#    pos1, intens1 = pattern1
-#    pos2, intens2 = pattern2
-#
-#    # Interpolate intensities to a common set of positions
-#    common_positions = np.union1d(pos1, pos2)
-#    intens1_interpolated = np.interp(common_positions, pos1, inten1)
-#    intens2_interpolated = np.interp(common_positions, pos2, intens2)
-#
-#    # Calculate RMSD
-#    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
-#    return rmsd, common_positions, intens1_interpolated, intens2_interpolated
-    
-#def calculate_rmsd_prefix_cif(prefix, cif, scattering_lower_limit=None):
-#
-#    space_group_symbol = extract_space_group_symbol(cif)
-#    if space_group_symbol is not None and space_group_symbol != "P 1":
-#        cif = return_operators(cif, space_group_symbol)
-#
-#    prefix_x = prefix[0]
-#    prefix_y = prefix[1]
-#
-#    # CIF
-#    calc = XRDCalculator(symprec=0.1)
-#    parser = CifParser.from_string(cif)
-#    structure = parser.get_structures()[0]
-#    pattern = calc.get_pattern(structure)
-#
-#    if scattering_lower_limit is not None:
-#        mask = pattern.y >= scattering_lower_limit
-#        x = pattern.x[mask]
-#        y = pattern.y[mask]
-#    else:
-#        x = pattern.x
-#        y = pattern.y
-#
-#    # Unpack
-#    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
-#    pos2, intens2 = x, y
-#
-#    # Interpolate intensities to a common set of positions
-#    common_positions = np.union1d(pos1, pos2)
-#    intens1_interpolated = np.interp(common_positions, pos1, intens1)
-#    intens2_interpolated = np.interp(common_positions, pos2, intens2)
-#
-#    # Calculate RMSD
-#    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
-#    return rmsd, common_positions, intens1_interpolated, intens2_interpolated
-
-#def calculate_hdd_prefix_cif(prefix, cif, scattering_lower_limit=None):
-#
-#    space_group_symbol = extract_space_group_symbol(cif)
-#    if space_group_symbol is not None and space_group_symbol != "P 1":
-#        cif = return_operators(cif, space_group_symbol)
-#
-#    prefix_x = prefix[0]
-#    prefix_y = prefix[1]
-#
-#    # CIF
-#    calc = XRDCalculator(symprec=0.1)
-#    parser = CifParser.from_string(cif)
-#    structure = parser.get_structures()[0]
-#    pattern = calc.get_pattern(structure)
-#
-#    if scattering_lower_limit is not None:
-#        mask = pattern.y >= scattering_lower_limit
-#        x = pattern.x[mask]
-#        y = pattern.y[mask]
-#    else:
-#        x = pattern.x
-#        y = pattern.y
-#
-#    # Unpack
-#    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
-#    pos2, intens2 = x, y
-#
-#    set1 = torch.tensor([pos1, intens1], dtype=torch.float32).T
-#    set2 = torch.tensor([pos2, intens2], dtype=torch.float32).T
-#
-#    # HDD
-#    pairwise_distances = torch.cdist(set1, set2)
-#
-#    forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
-#    backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
-#    hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
-#    
-#    # Interpolate intensities to a common set of positions
-#    common_positions = np.union1d(pos1, pos2)
-#    intens1_interpolated = np.interp(common_positions, pos1, intens1)
-#    intens2_interpolated = np.interp(common_positions, pos2, intens2)
-#
-#    # Calculate RMSD
-#    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
-#
-#    return rmsd, hausdorff_distance
-
 def tth_to_q(tth, wl):
     return (4 * np.pi / wl) * np.sin(np.radians(tth) / 2)
 
@@ -246,59 +135,6 @@ def calculate_metrics(cond, cif, scattering_lower_limit=None, number_limit=None)
     rmsd = np.sqrt(np.mean((cond_interpolated - gen_cond_interpolated)**2))
     
     return rmsd, hdd, cond_x, cond_y, gen_cond_x, gen_cond_y
-
-#def calculate_metrics(decode, cond_ids, cif, scattering_lower_limit=None):
-#                    
-#    # Convert cond ids into [x,y] array
-#    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
-#    decoded_cond = decode(cond_ids.tolist())
-#    matches = pattern.findall(decoded_cond)
-#    prefix = np.array([[float(match[0]), float(match[1])] for match in matches]).T
-#    
-#    space_group_symbol = extract_space_group_symbol(cif)
-#    if space_group_symbol is not None and space_group_symbol != "P 1":
-#        cif = return_operators(cif, space_group_symbol)
-#
-#    prefix_x = prefix[0]
-#    prefix_y = prefix[1]
-#
-#    # CIF
-#    calc = XRDCalculator(symprec=0.1)
-#    parser = CifParser.from_string(cif)
-#    structure = parser.get_structures()[0]
-#    pattern = calc.get_pattern(structure)
-#
-#    if scattering_lower_limit is not None:
-#        mask = pattern.y >= scattering_lower_limit
-#        x = tth_to_q(pattern.x[mask], calc.wavelength)
-#        y = pattern.y[mask] / 100
-#    else:
-#        x = tth_to_q(pattern.x, calc.wavelength)
-#        y = pattern.y / 100
-#
-#    # Unpack
-#    pos1, intens1 = prefix_x[prefix_x != 0], prefix_y[prefix_y != 0]
-#    pos2, intens2 = x, y
-#
-#    set1 = torch.tensor([pos1, intens1], dtype=torch.float32).T
-#    set2 = torch.tensor([pos2, intens2], dtype=torch.float32).T
-#
-#    # HDD
-#    pairwise_distances = torch.cdist(set1, set2)
-#
-#    forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
-#    backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
-#    hausdorff_distance = torch.max(forward_hausdorff, backward_hausdorff)
-#    
-#    # Interpolate intensities to a common set of positions
-#    common_positions = np.union1d(pos1, pos2)
-#    intens1_interpolated = np.interp(common_positions, pos1, intens1)
-#    intens2_interpolated = np.interp(common_positions, pos2, intens2)
-#
-#    # Calculate RMSD
-#    rmsd = np.sqrt(np.mean((intens1_interpolated - intens2_interpolated)**2))
-#
-#    return rmsd, hausdorff_distance, pos1, intens1, pos2, intens2
 
 def get_data(config):
     
@@ -572,141 +408,6 @@ def generate_samples(config):
 
                 # TODO evaluation .csv file?
 
-                ## Repeats
-                #for j in tqdm(range(config.n_repeats), total=config.n_repeats, desc='Generating repeats...', leave=False, disable=print_to_consol):
-
-
-                #    # Get sliced data from starting index and "max_len" ahead
-                #    sliced_data = data[start_idx:start_idx+config.cond_window]
-
-                #    # Find the index of the first occurance of cif_start_id
-                #    try:
-                #        end_index = np.where(sliced_data == cif_start_id)[0][0] + 1
-
-                #        # Extract xrd conditioning
-                #        cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
-                #        cond_ids_len = len(cond_ids) - 1
-
-                #        if config.add_composition:
-                #            end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # + up to 1st occ of new line
-                #            
-                #            if config.add_spacegroup:
-                #                end_index += np.where(sliced_data[end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
-                #                end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
-
-                #        #if config.add_composition and not config.add_spacegroup:
-                #        #    end_index = np.where(sliced_data[data_index:] == new_line_id)[0][0]
-                #        #elif config.add_composition and config.add_spacegroup:
-                #        #    spacegroup_index = np.where(sliced_data[data_index:data_index+config.cond_window] == spacegroup_id)[0][0]
-                #        #    new_line_index = np.where(sliced_data[spacegroup_index:spacegroup_index+config_window] == new_line_id)[0][0]
-                #        #    end_index = spacegroup + new_line_index
-
-                #    except IndexError:
-                #        raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
-
-                #    # Extract the ids, including the starting id (+1)
-                #    #cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
-
-                #    # Add custom composition and spacegroup
-                #    #composition = [] if config.composition == "" else encode(tokenizer.tokenize_cif(config.composition)) + encode(["\n"])
-                #    #cond_ids_with_prompt = torch.cat((cond_ids, torch.tensor(composition, dtype=torch.long)))
-
-                #    # Add custom spacegroup
-                #    #spacegroup = [] if config.spacegroup == "" else encode(["_symmetry_space_group_name_H-M"," "]) + encode(tokenizer.tokenize_cif(config.spacegroup)) + encode(["\n"])
-                #    #cond_ids_with_prompt = torch.cat((cond_ids_with_prompt, torch.tensor(spacegroup, dtype=torch.long)))
-
-                #    #cond_ids_with_prompt = cond_ids_with_prompt.to(device=config.device).unsqueeze(0)
-                #    prompt = torch.tensor(sliced_data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
-                #    
-                #    if print_to_consol:
-                #        print("Generation no.", j+1, ":")
-                #        out = model.generate_and_print(prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k)
-
-                #        # Fit
-                #        if config.fit_xrd:
-                #            try:
-                #                output = decode(out[0][cond_ids_len:].tolist())
-                #                rmsd, hdd, *xrd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
-
-                #                if config.plot_xrd:
-                #                    fig, ax = plt.subplots()
-                #                    ax.bar(xrd[0], xrd[1], width=0.02, label='Original')
-                #                    ax.bar(xrd[2], xrd[3], width=0.02, label='Generated')
-                #                    ax.legend()
-                #                    ax.grid(alpha=0.2)
-                #                    ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
-                #                    plt.show()
-                #                
-                #            except Exception as e:
-                #                rmsd = 1.0
-                #                hdd = 1.0
-                #            print()
-                #            print(f'RMSD: {rmsd}')
-                #            print(f'HDD: {rmsd}')
-                #        print()
-                #    else:
-                #        out = model.generate(prompt, max_new_tokens=config.max_new_tokens, top_k=config.top_k, disable_pbar=True)
-                #        if config.plot_xrd:
-                #            try:
-                #                output = decode(out[0][cond_ids_len:].tolist())
-                #                rmsd, hdd, *xrd = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
-                #                fig, ax = plt.subplots()
-                #                ax.bar(xrd[0], xrd[1], width=0.02, label='Original')
-                #                ax.bar(xrd[2], xrd[3], width=0.02, label='Generated')
-                #                ax.legend()
-                #                ax.grid(alpha=0.2)
-                #                ax.set(xlabel='Q [$Å^{-1}$]', ylabel='I(Q) [a.u.]')
-                #                plt.show()
-                #            except:
-                #                rmsd = 1.0
-                #                hdd = 1.0
-                #            print()
-                #            print(f'RMSD: {rmsd}')
-                #            print(f'HDD: {rmsd}')
-                #        elif config.fit_xrd:
-                #            try:
-                #                output = decode(out[0][cond_ids_len:].tolist())
-                #                rmsd, hdd, *_ = calculate_metrics(decode, cond_ids, output, scattering_lower_limit=config.scattering_lower_limit)
-                #            except:
-                #                rmsd = 1.0
-                #                hdd = 1.0
-                #            
-                #    rmsds.append(rmsd)
-                #    hdds.append(hdd)
-
-                #    # I need them seperately
-                #    #cond_decoded = decode(cond_ids.tolist())
-                #    #cif_decoded = decode()
-
-
-                #    output = decode(out[0].tolist())
-
-                #    # Postprocess
-                #    if config.post_process:
-                #        space_group_symbol = extract_space_group_symbol(output)
-                #        if space_group_symbol is not None and space_group_symbol != "P 1":
-                #            output = return_operators(output, space_group_symbol)
-                #    gens.append(output)
-                #    
-                #if not print_to_consol:
-                #    generated_cifs.append((filename, gens, rmsds, hdds))
-
-
-   # if not print_to_consol:
-   #     if config.individual_cifs:
-   #         for id, gens in tqdm(generated_cifs, desc=f"Writing individual cifs to {config.out} folder"):
-   #             for i, gen in enumerate(gens):
-   #                 with open(f"{id}_{i}.cif", "w") as f:
-   #                     f.write(gen)
-   #     else:
-   #         with tarfile.open(config.out, "w:gz") as tar:
-   #             for id, gens in tqdm(generated_cifs, desc=f"Writing CIF files to {config.out}..."):
-   #                 for i, cif in enumerate(gens):
-   #                     cif_file = tarfile.TarInfo(name=f"{id}__{i+1}.cif")
-   #                     cif_bytes = cif.encode("utf-8")
-   #                     cif_file.size = len(cif_bytes)
-   #                     tar.addfile(cif_file, io.BytesIO(cif_bytes))
-
 @dataclass
 class SampleDefaults:
     model_dir: str = "" # Path to model checkpoint
@@ -726,7 +427,6 @@ class SampleDefaults:
     add_composition: bool = False
     add_spacegroup: bool = False
     debug_max: int = None
-    #post_process: bool = False
     encode_prefix: bool = False
     fit_xrd: bool = False
     scattering_lower_limit: float = 5.0
@@ -753,7 +453,6 @@ if __name__ == "__main__":
     parser.add_argument("--add_composition", action='store_true')
     parser.add_argument("--add_spacegroup", action='store_true')
     parser.add_argument("--debug_max", type=int)
-    #parser.add_argument("--post_process", action='store_true')
     parser.add_argument("--encode_prefix", action='store_true')
     parser.add_argument("--fit_xrd", action='store_true')
     parser.add_argument("--scattering_lower_limit", type=float)
@@ -763,8 +462,20 @@ if __name__ == "__main__":
 
     config = SampleDefaults()
 
-    # TODO Load config from dataset and model !!!
-    
+    # Load config arguments from the Dataset Config
+    dataset_config = load_dataset_config()
+
+    meta_path = os.path.join(args.dataset_dir, "meta.pkl")
+    cif_vocab_size = None
+    if os.path.exists(meta_path):
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+
+        config.cif_vocab_size = meta['cif_vocab_size']
+        config.scattering_type = meta['scattering_type']
+        config.scattering_lower_limit = meta['scattering_lower_limit']
+        config.number_limit = meta['number_limit']
+
     for key, value in vars(args).items():
         if value is not None:
             setattr(config, key, value)

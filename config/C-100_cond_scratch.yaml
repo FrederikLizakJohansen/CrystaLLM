@@ -1,5 +1,5 @@
 out_dir: '../experiments/CrystaLLM/scratch/conditioned_prefix/small_C-100'
-eval_interval: 10  # how often to evaluate against the validation set
+eval_interval: 1000  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
 log_interval: 1  # how often to print to the console (1 = every iteration)
@@ -18,11 +18,11 @@ validate: True
 
 dataset: '../data/CrystaLLM/datasets/conditioned_prefix_100'
 batch_size: 16
-block_size: 1024
+block_size: 512
 
-n_layer: 8
-n_head: 8
-n_embd: 512
+n_layer: 2
+n_head: 2
+n_embd: 128
 dropout: 0.1
 
 learning_rate: 1e-3
@@ -36,9 +36,9 @@ warmup_iters: 100
 early_stopping_patience: 5
 
 validate_generation: True
-validate_generation_start_iter: 0
+validate_generation_start_iter: 100
 gen_iters_train: 1
 gen_iters_val: 1
-gen_max_new_tokens: 3000
+gen_max_new_tokens: 500
 gen_top_k: 10
-gen_batch_size: 8
+gen_batch_size: 2
