@@ -302,20 +302,33 @@ def generate_samples(config):
 
                 repeat_gen_pbar = tqdm(desc='Generating repeats...', leave=False, disable=True, total=config.n_repeats)
                 if not print_to_consol:
-                    for j in range(config.n_repeats):
+                    # Get conditioning, cif and prompt
+                    cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id)
+                    #print("Got cond")
+                        
+                    # Decode cond, cif and gen_cif
+                    cond = decode(cond_ids.tolist())
+                    cif_len = len(cif_ids)
+                    cif = decode(cif_ids)
+                            
+                    # Original cif properties
+                    a = extract_numeric_property(cif, "_cell_length_a")
+                    b = extract_numeric_property(cif, "_cell_length_b")
+                    c = extract_numeric_property(cif, "_cell_length_c")
+                    alpha = extract_numeric_property(cif, "_cell_angle_alpha")
+                    beta = extract_numeric_property(cif, "_cell_angle_beta")
+                    gamma = extract_numeric_property(cif, "_cell_angle_gamma")
+                    implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
+                    gen_vol = extract_volume(cif)
+                    data_formula = extract_data_formula(cif)
+                    cells.append((a,b,c,alpha,beta,gamma,implied_vol, gen_vol, data_formula, cif_len))
 
-                        # Get conditioning, cif and prompt
-                        cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id)
-                        #print("Got cond")
+                    for j in range(config.n_repeats):
 
                         # Generate from prompt using model
                         gen_cif_ids = model.generate(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k, disable_pbar=True)
                         #print("Genned cif")
 
-                        # Decode cond, cif and gen_cif
-                        cond = decode(cond_ids.tolist())
-                        cif_len = len(cif_ids)
-                        cif = decode(cif_ids)
                         gen_len = len(gen_cif_ids[0][len(cond_ids)-1:])
                         gen_cif = decode(gen_cif_ids[0][len(cond_ids)-1:].tolist())
                         #print("Decoded")
@@ -377,31 +390,16 @@ def generate_samples(config):
                             implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
                             gen_vol = extract_volume(gen_cif)
                             data_formula = extract_data_formula(gen_cif)
-                            gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid))
-                            
-                            # Original cif properties
-                            a = extract_numeric_property(cif, "_cell_length_a")
-                            b = extract_numeric_property(cif, "_cell_length_b")
-                            c = extract_numeric_property(cif, "_cell_length_c")
-                            alpha = extract_numeric_property(cif, "_cell_angle_alpha")
-                            beta = extract_numeric_property(cif, "_cell_angle_beta")
-                            gamma = extract_numeric_property(cif, "_cell_angle_gamma")
-                            implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
-                            gen_vol = extract_volume(cif)
-                            data_formula = extract_data_formula(cif)
-                            cells.append((a,b,c,alpha,beta,gamma,implied_vol, gen_vol, data_formula, cif_len))
-                            #print("cells")
 
                             # Calculate metrics
                             rmsd, hdd, *_ = calculate_metrics(cond, gen_cif, config.scattering_lower_limit, config.number_limit)
-                            #print("calc metrics")
-
-                            # Append and move on
-                            cifs.append((cif, gen_cif))
                             mean_rmsd += rmsd
                             mean_hdd += hdd
 
-                            #print(rmsd)
+                            gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid, rmsd.item(), hdd.item()))
+
+                            # Append and move on
+                            cifs.append((cif, gen_cif))
 
                             # Update gen_pbar
                             repeat_gen_pbar.update(1)
@@ -511,7 +509,7 @@ def generate_samples(config):
                     #cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula))
                     metrics[f"{id}"] = {}
                     metrics[f"{id}"]["gen_cell"] = []
-                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, valid) in enumerate(gen_cells):
+                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, valid, gen_rmsd, gen_hdd) in enumerate(gen_cells):
                         
                         metrics[f"{id}"]["gen_cell"].append(
                             {
@@ -527,8 +525,11 @@ def generate_samples(config):
                                 "gen_len": gen_len,
                                 "asm_valid": asm_valid,
                                 "sg_valid": sg_valid,
+                                "blrs_valid": blrs_valid,
                                 "fc_valid": fc_valid,
                                 "valid": valid,
+                                "rmsd": gen_rmsd,
+                                "hdd": gen_hdd,
                             }
                         )
                     metrics[f"{id}"]["cell"] = []
