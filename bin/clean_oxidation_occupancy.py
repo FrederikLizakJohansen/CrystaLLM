@@ -17,6 +17,9 @@ warnings.filterwarnings("ignore")
 OXI_LOOP_PATTERN = r'loop_[^l]*(?:l(?!oop_)[^l]*)*_atom_type_oxidation_number[^l]*(?:l(?!oop_)[^l]*)*'
 OXI_STATE_PATTERN = r'(\n\s+)([A-Za-z]+)[\d.+-]*'
 
+# Regular expression to match occupancy values
+OCCU_PATTERN = re.compile(r'_atom_site_occupancy[\s\S]+?((?:\s*\S+\s+(\d*\.\d+)\s*)+)')
+
 def progress_listener(queue, n):
     pbar = tqdm(total=n)
     tot = 0
@@ -40,9 +43,25 @@ def clean_oxidation_cif(progress_queue, task_queue, result_queue):
             cif_str = re.sub(OXI_LOOP_PATTERN, '', cif_str)
             cif_str = re.sub(OXI_STATE_PATTERN, r'\1\2', cif_str)
 
-            clean_cifs.append((id, cif_str))
         except Exception as e:
             pass
+
+        # Search for the occupancy block
+        occupancy_block_match = occupancy_pattern.search(cif_string)
+        
+        if occupancy_block_match:
+            occupancy_block = occupancy_block_match.group(1)
+            # Find all occupancy values
+            occupancy_values = re.findall(r'\s+\S+\s+(\d*\.\d+)', occupancy_block)
+            
+            # Check for occupancy less than 1.0
+            has_low_occupancy = any(float(occupancy) < 1.0 for occupancy in occupancy_values)
+            
+            if has_low_occupancy:
+                progress_queue.put(1)
+                continue
+                
+        clean_cifs.append((id, cif_str))
 
         progress_queue.put(1)
 
