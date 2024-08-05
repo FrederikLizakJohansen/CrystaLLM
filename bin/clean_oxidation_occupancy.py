@@ -18,7 +18,8 @@ OXI_LOOP_PATTERN = r'loop_[^l]*(?:l(?!oop_)[^l]*)*_atom_type_oxidation_number[^l
 OXI_STATE_PATTERN = r'(\n\s+)([A-Za-z]+)[\d.+-]*'
 
 # Regular expression to match occupancy values
-OCCU_PATTERN = re.compile(r'_atom_site_occupancy[\s\S]+?((?:\s*\S+\s+(\d*\.\d+)\s*)+)')
+OCCU_PATTERN = re.compile(
+        r'(_atom_site_type_symbol[\s\S]+?_atom_site_occupancy\s+)((?:\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\d+\.\d+\s*)+)', re.MULTILINE)
 
 def progress_listener(queue, n):
     pbar = tqdm(total=n)
@@ -47,19 +48,31 @@ def clean_oxidation_cif(progress_queue, task_queue, result_queue):
             pass
 
         # Search for the occupancy block
-        occupancy_block_match = occupancy_pattern.search(cif_string)
+        occupancy_block_match = OCCU_PATTERN.search(cif_str)
         
         if occupancy_block_match:
-            occupancy_block = occupancy_block_match.group(1)
-            # Find all occupancy values
-            occupancy_values = re.findall(r'\s+\S+\s+(\d*\.\d+)', occupancy_block)
+            # Extract header and atoms
+            header = block_match.group(1)
+            atoms = block_match.group(2).strip().split('\n')
             
-            # Check for occupancy less than 1.0
-            has_low_occupancy = any(float(occupancy) < 1.0 for occupancy in occupancy_values)
-            
-            if has_low_occupancy:
+            # Check occupancies and format them
+            formatted_atoms = []
+            occupancies = []
+            for atom in atoms:
+                parts = atom.split()
+                label = parts[1]
+                occupancy = float(parts[-1])
+                occupancies.append(occupancy)
+                formatted_occupancy = f"{occupancy:.0f}"
+                formatted_atoms.append('  '.join(parts[:-1]) + f"  {formatted_occupancy}")
+
+            # Check for low occupancy
+            if any(float(occupancy) < 1.0 for occupancy in occupancies):
                 progress_queue.put(1)
                 continue
+            else: # Else format
+                formatted_block = header + '\n  '.join(formatted_atoms)
+                cif_str = OCCU_PATTERN.sub(formatted_block, cif_str)
                 
         clean_cifs.append((id, cif_str))
 
