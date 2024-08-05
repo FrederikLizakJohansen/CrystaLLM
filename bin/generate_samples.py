@@ -21,6 +21,16 @@ from crystallm import (
     CIFTokenizer,
     extract_space_group_symbol,
     replace_symmetry_operators,
+    bond_length_reasonableness_score,
+    extract_data_formula,
+    extract_numeric_property,
+    extract_space_group_symbol,
+    extract_volume,
+    get_unit_cell_volume,
+    is_atom_site_multiplicity_consistent,
+    is_space_group_consistent,
+    is_formula_consistent,
+    is_sensible,
 )
 
 from pymatgen.core import Composition
@@ -203,11 +213,11 @@ def extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, 
             if config.add_spacegroup:
                 end_index += np.where(sliced_data[end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
                 end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
-    except Exception as e:
-        raise e
+    #except Exception as e:
+    #    raise e
 
-   #except IndexError:
-   #    raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
+    except IndexError:
+        raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
 
     prompt_ids = torch.tensor(sliced_data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
     cif_ids = sliced_data[cond_ids_len:]
@@ -279,50 +289,148 @@ def generate_samples(config):
 
                 # Save conditioning pattern, cif generations, mean rmsd and mean hdd
                 cifs = [] # Original / Generated
+                gen_cells = [] # Tuples of a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula
+                cells = [] # Tuples of a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula
                 mean_rmsd = 0
                 mean_hdd = 0
+                mean_asm = 0
+                mean_sg = 0
+                mean_blrs = 0
+                mean_fc = 0
+                mean_validity = 0
+                n_fails = 0
 
                 repeat_gen_pbar = tqdm(desc='Generating repeats...', leave=False, disable=True, total=config.n_repeats)
                 if not print_to_consol:
                     for j in range(config.n_repeats):
+
                         # Get conditioning, cif and prompt
                         cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id)
+                        #print("Got cond")
 
                         # Generate from prompt using model
                         gen_cif_ids = model.generate(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k, disable_pbar=True)
+                        #print("Genned cif")
 
                         # Decode cond, cif and gen_cif
                         cond = decode(cond_ids.tolist())
+                        cif_len = len(cif_ids)
                         cif = decode(cif_ids)
+                        gen_len = len(gen_cif_ids[0][len(cond_ids)-1:])
                         gen_cif = decode(gen_cif_ids[0][len(cond_ids)-1:].tolist())
+                        #print("Decoded")
 
                         # Fix the spacegroup
                         space_group_symbol = extract_space_group_symbol(gen_cif)
                         if space_group_symbol is not None and space_group_symbol != "P 1":
                             gen_cif = return_operators(gen_cif, space_group_symbol)
-
+                        #print("Fixed spacegroup")
+                        
                         try:
+                            # ASM
+                            if is_atom_site_multiplicity_consistent(gen_cif):
+                                mean_asm += 1
+                                asm_valid = True
+                            else:
+                                asm_valid = False
+                            #print("ASM")
+
+                            # SG
+                            if is_space_group_consistent(gen_cif):
+                                mean_sg += 1
+                                sg_valid = True
+                            else:
+                                sg_valid = False
+                            #print("SG")
+
+                            # BLRS
+                            if bond_length_reasonableness_score(gen_cif) >= 1.0:
+                                mean_blrs += 1
+                                blrs_valid = True
+                            else:
+                                blrs_valid = False
+                            #print("BLRS")
+
+                            # Formula
+                            if is_formula_consistent(gen_cif):
+                                mean_fc += 1
+                                fc_valid = True
+                            else:
+                                fc_valid = False
+                            #print("FC")
+
+                            # See if valid
+                            if asm_valid and sg_valid and blrs_valid and fc_valid:
+                                mean_validity += 1
+                                is_valid = True
+                            else:
+                                is_valid = False
+                            #print("validity")
+
+                            # Generated cif properties
+                            a = extract_numeric_property(gen_cif, "_cell_length_a")
+                            b = extract_numeric_property(gen_cif, "_cell_length_b")
+                            c = extract_numeric_property(gen_cif, "_cell_length_c")
+                            alpha = extract_numeric_property(gen_cif, "_cell_angle_alpha")
+                            beta = extract_numeric_property(gen_cif, "_cell_angle_beta")
+                            gamma = extract_numeric_property(gen_cif, "_cell_angle_gamma")
+                            implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
+                            gen_vol = extract_volume(gen_cif)
+                            data_formula = extract_data_formula(gen_cif)
+                            gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid))
+                            
+                            # Original cif properties
+                            a = extract_numeric_property(cif, "_cell_length_a")
+                            b = extract_numeric_property(cif, "_cell_length_b")
+                            c = extract_numeric_property(cif, "_cell_length_c")
+                            alpha = extract_numeric_property(cif, "_cell_angle_alpha")
+                            beta = extract_numeric_property(cif, "_cell_angle_beta")
+                            gamma = extract_numeric_property(cif, "_cell_angle_gamma")
+                            implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
+                            gen_vol = extract_volume(cif)
+                            data_formula = extract_data_formula(cif)
+                            cells.append((a,b,c,alpha,beta,gamma,implied_vol, gen_vol, data_formula, cif_len))
+                            #print("cells")
+
                             # Calculate metrics
                             rmsd, hdd, *_ = calculate_metrics(cond, gen_cif, config.scattering_lower_limit, config.number_limit)
+                            #print("calc metrics")
+
+                            # Append and move on
+                            cifs.append((cif, gen_cif))
+                            mean_rmsd += rmsd
+                            mean_hdd += hdd
+
+                            #print(rmsd)
+
+                            # Update gen_pbar
+                            repeat_gen_pbar.update(1)
+                        
                         except Exception as e:
-                            #raise e
-                            rmsd, hdd = 1.0, 1.0
-
-                        # Append and move on
-                        cifs.append((cif, gen_cif))
-                        mean_rmsd += rmsd
-                        mean_hdd += hdd
-
-                        # Update gen_pbar
-                        repeat_gen_pbar.update(1)
+                            
+                            mean_rmsd += np.nan
+                            mean_hdd += np.nan
+                            n_fails += 1
+                            
+                            # Update gen_pbar
+                            repeat_gen_pbar.update(1)
+                            
+                            continue
 
                     # Average
-                    mean_rmsd /= config.n_repeats
-                    mean_hdd /= config.n_repeats
+                    n_non_fails = max(config.n_repeats - n_fails,1)
+                    mean_rmsd /= n_non_fails
+                    mean_hdd /= n_non_fails
+                    mean_asm /= n_non_fails 
+                    mean_sg /=  n_non_fails 
+                    mean_blrs /= n_non_fails
+                    mean_fc /=  n_non_fails 
+                    mean_validity /= n_non_fails
+                    #print("Average")
 
                     # Append results
-                    results.append((fname, cifs, mean_rmsd, mean_hdd))
-
+                    results.append((fname, cifs, gen_cells, cells, mean_rmsd, mean_hdd, mean_asm, mean_sg, mean_blrs, mean_fc, mean_validity))
+                    #print("Append results")
 
                 else:
                     # Print filename
@@ -363,8 +471,8 @@ def generate_samples(config):
                                     plt.show()
                             except Exception as e:
                                 #raise e
-                                rmsd = 1.0
-                                hdd = 1.0
+                                rmsd = np.nan #1.0
+                                hdd = np.nan #10.0
 
                             # Print results
                             print()
@@ -384,7 +492,8 @@ def generate_samples(config):
         else:
             with tarfile.open(config.out, "w:gz") as tar:
                 metrics = {}
-                for id, gens, rmsd, hdd in tqdm(results, desc=f"Writing results to {config.out}..."):
+                #results.append((fname, cifs, cells, mean_rmsd, mean_hdd, mean_asm, mean_sg, mean_blrs, mean_fc, mean_validity))
+                for id, gens, gen_cells, cells, rmsd, hdd, asm, sg, blrs, fc, val in tqdm(results, desc=f"Writing results to {config.out}..."):
                     for i, (original, gen) in enumerate(gens):
 
                         # original
@@ -399,8 +508,49 @@ def generate_samples(config):
                         gen_file.size = len(gen_bytes)
                         tar.addfile(gen_file, io.BytesIO(gen_bytes))
 
+                    #cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula))
+                    metrics[f"{id}"] = {}
+                    metrics[f"{id}"]["gen_cell"] = []
+                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, valid) in enumerate(gen_cells):
+                        
+                        metrics[f"{id}"]["gen_cell"].append(
+                            {
+                                "a": a,
+                                "b": b,
+                                "c": c,
+                                "alpha": alpha,
+                                "beta": beta,
+                                "gamma": gamma,
+                                "implied_vol": implied_vol,
+                                "gen_vol": gen_vol,
+                                "data_formula": data_form,
+                                "gen_len": gen_len,
+                                "asm_valid": asm_valid,
+                                "sg_valid": sg_valid,
+                                "fc_valid": fc_valid,
+                                "valid": valid,
+                            }
+                        )
+                    metrics[f"{id}"]["cell"] = []
+                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len) in enumerate(cells):
+                        
+                        metrics[f"{id}"]["cell"].append(
+                            {
+                                "a": a,
+                                "b": b,
+                                "c": c,
+                                "alpha": alpha,
+                                "beta": beta,
+                                "gamma": gamma,
+                                "implied_vol": implied_vol,
+                                "gen_vol": gen_vol,
+                                "data_formula": data_form,
+                                "gen_len": gen_len,
+                            }
+                        )
+
                     # metrics
-                    metrics[f"{id}"] = {'RMSD': rmsd, 'HDD': hdd}
+                    metrics[f"{id}"]["metrics"] = {'RMSD': rmsd, 'HDD': hdd, 'ASM': asm, 'SG': sg, 'BLRS': blrs, 'FC': fc, 'validity': val}
 
                 with open('metrics.json', 'w') as metrics_file:
                     json.dump(metrics, metrics_file)
@@ -458,13 +608,20 @@ if __name__ == "__main__":
     parser.add_argument("--scattering_lower_limit", type=float)
     parser.add_argument("--number_limit", type=int)
     parser.add_argument("--individual_cifs", action='store_true')
+    parser.add_argument("--cond_window", type=int)
     args = parser.parse_args()
 
     config = SampleDefaults()
 
-    # Load config arguments from the Dataset Config
-    dataset_config = load_dataset_config()
+    for key, value in vars(args).items():
+        if value is not None:
+            setattr(config, key, value)
 
+    # Assertions
+    assert config.model_dir != "", "[model_dir] cannot be empty"
+    assert config.dataset_dir != "", "[dataset_dir] cannot be empty"
+    
+    # Load config arguments from the Dataset Config
     meta_path = os.path.join(args.dataset_dir, "meta.pkl")
     cif_vocab_size = None
     if os.path.exists(meta_path):
@@ -475,14 +632,6 @@ if __name__ == "__main__":
         config.scattering_type = meta['scattering_type']
         config.scattering_lower_limit = meta['scattering_lower_limit']
         config.number_limit = meta['number_limit']
-
-    for key, value in vars(args).items():
-        if value is not None:
-            setattr(config, key, value)
-
-    # Assertions
-    assert config.model_dir != "", "[model_dir] cannot be empty"
-    assert config.dataset_dir != "", "[dataset_dir] cannot be empty"
 
     # Run training script
     generate_samples(config)
