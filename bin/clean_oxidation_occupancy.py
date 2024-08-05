@@ -52,15 +52,14 @@ def clean_oxidation_cif(progress_queue, task_queue, result_queue):
         
         if occupancy_block_match:
             # Extract header and atoms
-            header = block_match.group(1)
-            atoms = block_match.group(2).strip().split('\n')
+            header = occupancy_block_match.group(1)
+            atoms = occupancy_block_match.group(2).strip().split('\n')
             
             # Check occupancies and format them
             formatted_atoms = []
             occupancies = []
             for atom in atoms:
                 parts = atom.split()
-                label = parts[1]
                 occupancy = float(parts[-1])
                 occupancies.append(occupancy)
                 formatted_occupancy = f"{occupancy:.0f}"
