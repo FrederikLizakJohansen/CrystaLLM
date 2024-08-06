@@ -97,54 +97,60 @@ def tth_to_q(tth, wl):
 
 def calculate_metrics(cond, cif, scattering_lower_limit=None, number_limit=None):
 
-    # Convert cond into x and y arrays
-    pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
-    matches = pattern.findall(cond)
-    cond_x, cond_y = np.array([[float(match[0]), float(match[1])] for match in matches]).T
-    cond_x = cond_x[cond_x != 0]
-    cond_y = cond_y[cond_y != 0]
+    try:
 
-    # Get pattern from cif
-    calc = XRDCalculator(symprec=0.1)
-    parser = CifParser.from_string(cif)
-    structure = parser.get_structures()[0]
-    gen_cond = calc.get_pattern(structure)
+        # Convert cond into x and y arrays
+        pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
+        matches = pattern.findall(cond)
+        cond_x, cond_y = np.array([[float(match[0]), float(match[1])] for match in matches]).T
+        cond_x = cond_x[cond_x != 0]
+        cond_y = cond_y[cond_y != 0]
 
-    # Use scattering lower limit
-    if scattering_lower_limit is not None:
-        mask = gen_cond.y >= scattering_lower_limit
-        gen_cond_x = tth_to_q(gen_cond.x[mask], calc.wavelength)
-        gen_cond_y = gen_cond.y[mask] / 100
-    else:
-        gen_cond_x = tth_to_q(gen_cond.x, calc.wavelength)
-        gen_cond_y = gen_cond.y / 100
+        # Get pattern from cif
+        calc = XRDCalculator(symprec=0.1)
+        parser = CifParser.from_string(cif)
+        structure = parser.get_structures()[0]
+        gen_cond = calc.get_pattern(structure)
 
-    # Use number limit
-    if number_limit is not None:
-        mask = np.argsort(gen_cond_y)[-number_limit:]
-        gen_cond_x = gen_cond_x[mask]
-        gen_cond_y = gen_cond_y[mask]
+        # Use scattering lower limit
+        if scattering_lower_limit is not None:
+            mask = gen_cond.y >= scattering_lower_limit
+            gen_cond_x = tth_to_q(gen_cond.x[mask], calc.wavelength)
+            gen_cond_y = gen_cond.y[mask] / 100
+        else:
+            gen_cond_x = tth_to_q(gen_cond.x, calc.wavelength)
+            gen_cond_y = gen_cond.y / 100
 
-    # Pack
-    cond = torch.tensor([cond_x, cond_y], dtype=torch.float32).T
-    gen_cond = torch.tensor([gen_cond_x, gen_cond_y], dtype=torch.float32).T
+        # Use number limit
+        if number_limit is not None:
+            mask = np.argsort(gen_cond_y)[-number_limit:]
+            gen_cond_x = gen_cond_x[mask]
+            gen_cond_y = gen_cond_y[mask]
 
-    # Calculate HDD
-    pairwise_distances = torch.cdist(cond, gen_cond)
+        # Pack
+        cond = torch.tensor([cond_x, cond_y], dtype=torch.float32).T
+        gen_cond = torch.tensor([gen_cond_x, gen_cond_y], dtype=torch.float32).T
 
-    forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
-    backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
-    hdd = torch.max(forward_hausdorff, backward_hausdorff).numpy()
+        # Calculate HDD
+        pairwise_distances = torch.cdist(cond, gen_cond)
+
+        forward_hausdorff = torch.max(torch.min(pairwise_distances, dim=1)[0])
+        backward_hausdorff = torch.max(torch.min(pairwise_distances, dim=0)[0])
+        hdd = torch.max(forward_hausdorff, backward_hausdorff).numpy()
+        
+        # Interpolate intensities to a common set of positions
+        common_positions = np.union1d(cond_x, gen_cond_x)
+        cond_interpolated = np.interp(common_positions, cond_x, cond_y)
+        gen_cond_interpolated = np.interp(common_positions, gen_cond_x, gen_cond_y)
+
+        # Calculate RMSD
+        rmsd = np.sqrt(np.mean((cond_interpolated - gen_cond_interpolated)**2))
+
+        return rmsd, hdd, cond_x, cond_y, gen_cond_x, gen_cond_y
+
+    except:
+        return None, None, None, None, None, None
     
-    # Interpolate intensities to a common set of positions
-    common_positions = np.union1d(cond_x, gen_cond_x)
-    cond_interpolated = np.interp(common_positions, cond_x, cond_y)
-    gen_cond_interpolated = np.interp(common_positions, gen_cond_x, gen_cond_y)
-
-    # Calculate RMSD
-    rmsd = np.sqrt(np.mean((cond_interpolated - gen_cond_interpolated)**2))
-    
-    return rmsd, hdd, cond_x, cond_y, gen_cond_x, gen_cond_y
 
 def get_data(config):
     
@@ -213,8 +219,6 @@ def extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, 
             if config.add_spacegroup:
                 end_index += np.where(sliced_data[end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
                 end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
-    #except Exception as e:
-    #    raise e
 
     except IndexError:
         raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
@@ -321,7 +325,8 @@ def generate_samples(config):
                     implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
                     gen_vol = extract_volume(cif)
                     data_formula = extract_data_formula(cif)
-                    cells.append((a,b,c,alpha,beta,gamma,implied_vol, gen_vol, data_formula, cif_len))
+                    space_group_symbol = extract_space_group_symbol(cif)
+                    cells.append((a,b,c,alpha,beta,gamma,implied_vol, gen_vol, data_formula, cif_len, space_group_symbol))
 
                     for j in range(config.n_repeats):
 
@@ -393,10 +398,18 @@ def generate_samples(config):
 
                             # Calculate metrics
                             rmsd, hdd, *_ = calculate_metrics(cond, gen_cif, config.scattering_lower_limit, config.number_limit)
-                            mean_rmsd += rmsd
-                            mean_hdd += hdd
+                            if rmsd is not None:
+                                mean_rmsd += rmsd
+                                rmsd = rmsd.item()
+                            else:
+                                rmsd = np.nan
+                            if hdd is not None:
+                                mean_hdd += hdd
+                                hdd = hdd.item()
+                            else:
+                                hdd = np.nan
 
-                            gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid, rmsd.item(), hdd.item()))
+                            gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid, rmsd, hdd, space_group_symbol))
 
                             # Append and move on
                             cifs.append((cif, gen_cif))
@@ -509,7 +522,7 @@ def generate_samples(config):
                     #cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula))
                     metrics[f"{id}"] = {}
                     metrics[f"{id}"]["gen_cell"] = []
-                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, valid, gen_rmsd, gen_hdd) in enumerate(gen_cells):
+                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, valid, gen_rmsd, gen_hdd, gen_spacegroup) in enumerate(gen_cells):
                         
                         metrics[f"{id}"]["gen_cell"].append(
                             {
@@ -530,10 +543,11 @@ def generate_samples(config):
                                 "valid": valid,
                                 "rmsd": gen_rmsd,
                                 "hdd": gen_hdd,
+                                "spacegroup": gen_spacegroup,
                             }
                         )
                     metrics[f"{id}"]["cell"] = []
-                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len) in enumerate(cells):
+                    for i, (a, b, c, alpha, beta, gamma, implied_vol, gen_vol, data_form, gen_len, actual_spacegroup) in enumerate(cells):
                         
                         metrics[f"{id}"]["cell"].append(
                             {
@@ -547,6 +561,7 @@ def generate_samples(config):
                                 "gen_vol": gen_vol,
                                 "data_formula": data_form,
                                 "gen_len": gen_len,
+                                "spacegroup": actual_spacegroup,
                             }
                         )
 
@@ -584,6 +599,7 @@ class SampleDefaults:
     number_limit: int = 10
     cond_window: int = 200
     individual_cifs: bool = False
+    exclude_cond: bool = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -610,6 +626,7 @@ if __name__ == "__main__":
     parser.add_argument("--number_limit", type=int)
     parser.add_argument("--individual_cifs", action='store_true')
     parser.add_argument("--cond_window", type=int)
+    parser.add_argument("--exclude_cond", action='store_true')
     args = parser.parse_args()
 
     config = SampleDefaults()
