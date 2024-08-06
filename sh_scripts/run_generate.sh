@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p gpu --gres=gpu:titanrtx:1
-#SBATCH --time 0-05:00:00
+#SBATCH --time 1-00:00:00
 #SBATCH --job-name=crystallm_gen
 #SBATCH --array 0
 #SBATCH --cpus-per-task=1

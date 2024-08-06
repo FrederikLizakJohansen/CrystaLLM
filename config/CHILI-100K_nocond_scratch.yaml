@@ -1,4 +1,4 @@
-out_dir: 'CHILI-100K_nocond_scratch_len_800_plus'
+out_dir: '../experiments/CHILI-100K/scratch/unconditioned_512'
 eval_interval: 10  # how often to evaluate against the validation set
 eval_iters_train: 200
 eval_iters_val: 200
@@ -16,9 +16,9 @@ always_save_checkpoint: True
 # whether to validate with a validation set
 validate: True
 
-dataset: 'datasets/CHILI-100K_nocond_len_800_plus'
+dataset: '../data/CHILI-100K/datasets/unconditioned_all'
 batch_size: 32
-block_size: 1024
+block_size: 512
 
 n_layer: 8
 n_head: 8

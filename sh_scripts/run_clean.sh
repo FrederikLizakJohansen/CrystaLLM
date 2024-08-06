@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH -p gpu --gres=gpu:titanrtx:1
-#SBATCH --time 1-12:00:00
-#SBATCH --job-name=crystallm_make
+#SBATCH --time 0-12:00:00
+#SBATCH --job-name=crystallm_clean
 #SBATCH --array 0
 #SBATCH --cpus-per-task=3
 #SBATCH --mem-per-cpu=6G
-#SBATCH --output=logs/prepare_dataset_%A_%a.out
+#SBATCH --output=logs/clean_%A_%a.out
 
 # Function to display help message
 usage() {
@@ -25,4 +25,4 @@ ARGS=("$@")
 # Display the arguments
 echo "Arguments passed: ${ARGS[*]}"
 
-python bin/prepare_dataset_prefix_prompt.py "${ARGS[@]}"
+python bin/clean_oxidation_states.py "${ARGS[@]}"
