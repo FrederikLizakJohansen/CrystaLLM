@@ -60,7 +60,7 @@ def return_operators(cif_str, space_group_symbol):
         v = op.translation_vector
         symmops.append(SymmOp.from_rotation_and_translation(op.rotation_matrix, v))
 
-    ops = [op.as_xyz_string() for op in symmops]
+    ops = [op.as_xyz_str() for op in symmops]
     data["_symmetry_equiv_pos_site_id"] = [f"{i}" for i in range(1, len(ops) + 1)]
     data["_symmetry_equiv_pos_as_xyz"] = ops
 
@@ -112,7 +112,7 @@ def calculate_metrics(cond, cif, scattering_lower_limit=None, number_limit=None)
 
         # Get pattern from cif
         calc = XRDCalculator(symprec=0.1)
-        parser = CifParser.from_string(cif)
+        parser = CifParser.from_str(cif)
         structure = parser.get_structures()[0]
         gen_cond = calc.get_pattern(structure)
 
@@ -450,6 +450,7 @@ def generate_samples(config):
                             repeat_gen_pbar.update(1)
                         
                         except Exception as e:
+                            #raise e
                             #print(f"{e}")
                             #print(gen_cif)
                             
