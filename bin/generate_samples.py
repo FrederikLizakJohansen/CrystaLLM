@@ -12,6 +12,8 @@ import json
 import numpy as np
 from tqdm.auto import tqdm
 
+import ctypes
+
 from contextlib import nullcontext
 import torch
 
@@ -24,7 +26,6 @@ from crystallm import (
     bond_length_reasonableness_score,
     extract_data_formula,
     extract_numeric_property,
-    extract_space_group_symbol,
     extract_volume,
     get_unit_cell_volume,
     is_atom_site_multiplicity_consistent,
@@ -44,6 +45,9 @@ import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore")
+
+import faulthandler
+faulthandler.enable()
 
 def return_operators(cif_str, space_group_symbol):
     space_group = SpaceGroup(space_group_symbol)
@@ -201,32 +205,58 @@ def get_data(config):
 
     return data, start_indices, cif_start_id, cif_paths
 
-def extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id):
-    # Find "_data" and slice
-    sliced_data = data[start_idx:start_idx+config.cond_window]
-   
-    # Find the index of the first occurance of cif_start_id
+def extract_cond_cif_prompt(config, data, start_idx, end_index, cif_start_id, new_line_id, spacegroup_id):
+
+    # Get sliced data
+    sliced_data = data[start_idx:end_index]
+
+    # Find "data_" and slice
     try:
-        end_index = np.where(sliced_data == cif_start_id)[0][0] + 1
-
-        # Extract xrd conditioning
-        cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
-        cond_ids_len = len(cond_ids) - 1
-
-        if config.add_composition:
-            end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # + up to 1st occ of new line
-
-            if config.add_spacegroup:
-                end_index += np.where(sliced_data[end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
-                end_index += np.where(sliced_data[end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
-
+        end_prompt_index = np.argwhere(sliced_data == cif_start_id)[0][0] + 1
     except IndexError:
-        raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
+        raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array")
 
-    prompt_ids = torch.tensor(sliced_data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
-    cif_ids = sliced_data[cond_ids_len:]
+    cond_ids = torch.tensor(sliced_data[:end_prompt_index].astype(np.int32))
+    cond_ids_len = len(cond_ids) - 1
+
+    if config.add_composition:
+        end_prompt_index += np.argwhere(sliced_data[end_prompt_index:] == new_line_id)[0][0]
+
+        if config.add_spacegroup:
+            end_prompt_index += np.argwhere(sliced_data[end_prompt_index:] == spacegroup_id)[0][0]
+            end_prompt_index += np.argwhere(sliced_data[end_prompt_index:] == new_line_id)[0][0]
+    
+    prompt_ids = torch.tensor(sliced_data[:end_prompt_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
+
+    return cond_ids, sliced_data, prompt_ids
+
+    ## Find "_data" and slice
+    #sliced_data = data[start_idx:start_idx+config.cond_window]
+    ##print(sliced_data)
    
-    return cond_ids, cif_ids, prompt_ids
+    ## Find the index of the first occurance of cif_start_id
+    #try:
+    #    #print(np.argwhere(sliced_data == cif_start_id)[0][0] + 1)
+    #    end_index = np.argwhere(sliced_data == cif_start_id)[0][0] + 1
+
+    #    # Extract xrd conditioning
+    #    cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
+    #    cond_ids_len = len(cond_ids) - 1
+
+    #    if config.add_composition:
+    #        end_index += np.argwhere(data[start_idx + end_index: ] == new_line_id)[0][0] # + up to 1st occ of new line
+
+    #        if config.add_spacegroup:
+    #            end_index += np.argwhere(data[start_idx + end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
+    #            end_index += np.argwhere(data[start_idx + end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
+
+    #except IndexError:
+    #    raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
+
+    #prompt_ids = torch.tensor(data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
+    #cif_ids = sliced_data[cond_ids_len:]
+   
+    #return cond_ids, cif_ids, prompt_ids
 
 def generate_samples(config):
     
@@ -285,7 +315,7 @@ def generate_samples(config):
 
             pbar = tqdm(desc='Generating/Evaluating CIFs...', leave=False, disable=print_to_consol, total=len(cif_paths))
 
-            for i, (fname, start_idx) in enumerate(zip(cif_paths, start_indices)):
+            for i, (fname, start_idx) in enumerate(zip(cif_paths, start_indices[:-1])): # TODO Also include the last of the cifs [:-1]
                 
                 # Break if debug max is reached
                 if i >= config.debug_max:
@@ -307,7 +337,7 @@ def generate_samples(config):
                 repeat_gen_pbar = tqdm(desc='Generating repeats...', leave=False, disable=True, total=config.n_repeats)
                 if not print_to_consol:
                     # Get conditioning, cif and prompt
-                    cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id)
+                    cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_indices[i], start_indices[i+1], cif_start_id, new_line_id, spacegroup_id)
                     #print("Got cond")
                         
                     # Decode cond, cif and gen_cif
@@ -340,6 +370,7 @@ def generate_samples(config):
 
                         # Fix the spacegroup
                         space_group_symbol = extract_space_group_symbol(gen_cif)
+                        #print(space_group_symbol)
                         if space_group_symbol is not None and space_group_symbol != "P 1":
                             gen_cif = return_operators(gen_cif, space_group_symbol)
                         #print("Fixed spacegroup")
@@ -354,6 +385,7 @@ def generate_samples(config):
                             #print("ASM")
 
                             # SG
+                            #print(gen_cif)
                             if is_space_group_consistent(gen_cif):
                                 mean_sg += 1
                                 sg_valid = True
@@ -418,6 +450,8 @@ def generate_samples(config):
                             repeat_gen_pbar.update(1)
                         
                         except Exception as e:
+                            #print(f"{e}")
+                            #print(gen_cif)
                             
                             mean_rmsd += np.nan
                             mean_hdd += np.nan
@@ -452,7 +486,7 @@ def generate_samples(config):
                     
                     for j in range(config.n_repeats):
                         # Get conditioning, cif and prompt
-                        cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_idx, cif_start_id, new_line_id, spacegroup_id)
+                        cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_indices[i], start_indices[i+1], cif_start_id, new_line_id, spacegroup_id)
                         
                         # Generate from prompt using model and print while doing so
                         gen_cif_ids = model.generate_and_print(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k)
