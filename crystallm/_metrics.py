@@ -69,7 +69,10 @@ def bond_length_reasonableness_score(cif_str, tolerance=0.32, h_factor=2.5):
 
 def is_space_group_consistent(cif_str):
     structure = Structure.from_str(cif_str, fmt="cif")
-    parser = CifParser.from_string(cif_str)
+    try:
+        parser = CifParser.from_string(cif_str)
+    except:
+        parser = CifParser.from_str(cif_str)
     cif_data = parser.as_dict()
 
     # Extract the stated space group from the CIF file
@@ -88,7 +91,10 @@ def is_space_group_consistent(cif_str):
 
 
 def is_formula_consistent(cif_str):
-    parser = CifParser.from_string(cif_str)
+    try:
+        parser = CifParser.from_string(cif_str)
+    except:
+        parser = CifParser.from_str(cif_str)
     cif_data = parser.as_dict()
 
     formula_data = Composition(extract_data_formula(cif_str))
@@ -100,7 +106,10 @@ def is_formula_consistent(cif_str):
 
 def is_atom_site_multiplicity_consistent(cif_str):
     # Parse the CIF string
-    parser = CifParser.from_string(cif_str)
+    try:
+        parser = CifParser.from_string(cif_str)
+    except:
+        parser = CifParser.from_str(cif_str)
     cif_data = parser.as_dict()
 
     # Extract the chemical formula sum from the CIF data

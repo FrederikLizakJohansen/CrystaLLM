@@ -60,7 +60,10 @@ def return_operators(cif_str, space_group_symbol):
         v = op.translation_vector
         symmops.append(SymmOp.from_rotation_and_translation(op.rotation_matrix, v))
 
-    ops = [op.as_xyz_str() for op in symmops]
+    try:
+        ops = [op.as_xyz_str() for op in symmops]
+    except:
+        ops = [op.as_xyz_string() for op in symmops]
     data["_symmetry_equiv_pos_site_id"] = [f"{i}" for i in range(1, len(ops) + 1)]
     data["_symmetry_equiv_pos_as_xyz"] = ops
 
