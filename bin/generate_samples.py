@@ -233,34 +233,6 @@ def extract_cond_cif_prompt(config, data, start_idx, end_index, cif_start_id, ne
 
     return cond_ids, sliced_data, prompt_ids
 
-    ## Find "_data" and slice
-    #sliced_data = data[start_idx:start_idx+config.cond_window]
-    ##print(sliced_data)
-   
-    ## Find the index of the first occurance of cif_start_id
-    #try:
-    #    #print(np.argwhere(sliced_data == cif_start_id)[0][0] + 1)
-    #    end_index = np.argwhere(sliced_data == cif_start_id)[0][0] + 1
-
-    #    # Extract xrd conditioning
-    #    cond_ids = torch.tensor(sliced_data[:end_index].astype(np.int32))
-    #    cond_ids_len = len(cond_ids) - 1
-
-    #    if config.add_composition:
-    #        end_index += np.argwhere(data[start_idx + end_index: ] == new_line_id)[0][0] # + up to 1st occ of new line
-
-    #        if config.add_spacegroup:
-    #            end_index += np.argwhere(data[start_idx + end_index:] == spacegroup_id)[0][0] # plus up to 1st occ of spacegroup tag
-    #            end_index += np.argwhere(data[start_idx + end_index:] == new_line_id)[0][0] # plus up to 1st occ of new line
-
-    #except IndexError:
-    #    raise ValueError(f"'data_' id: {cif_start_id} not found in sliced data array of size {config.cond_window}")
-
-    #prompt_ids = torch.tensor(data[:end_index+1].astype(np.int32)).to(device=config.device).unsqueeze(0)
-    #cif_ids = sliced_data[cond_ids_len:]
-   
-    #return cond_ids, cif_ids, prompt_ids
-
 def generate_samples(config):
     
     # Load Model
@@ -341,7 +313,6 @@ def generate_samples(config):
                 if not print_to_consol:
                     # Get conditioning, cif and prompt
                     cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_indices[i], start_indices[i+1], cif_start_id, new_line_id, spacegroup_id)
-                    #print("Got cond")
                         
                     # Decode cond, cif and gen_cif
                     cond = decode(cond_ids.tolist())
@@ -364,19 +335,16 @@ def generate_samples(config):
                     for j in range(config.n_repeats):
 
                         # Generate from prompt using model
-                        gen_cif_ids = model.generate(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k, disable_pbar=True)
+                        gen_cif_ids = model.generate(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k, disable_pbar=True).cpu().numpy()
                         #print("Genned cif")
 
                         gen_len = len(gen_cif_ids[0][len(cond_ids)-1:])
                         gen_cif = decode(gen_cif_ids[0][len(cond_ids)-1:].tolist())
-                        #print("Decoded")
 
                         # Fix the spacegroup
                         space_group_symbol = extract_space_group_symbol(gen_cif)
-                        #print(space_group_symbol)
                         if space_group_symbol is not None and space_group_symbol != "P 1":
                             gen_cif = return_operators(gen_cif, space_group_symbol)
-                        #print("Fixed spacegroup")
                         
                         try:
                             # ASM
@@ -385,16 +353,13 @@ def generate_samples(config):
                                 asm_valid = True
                             else:
                                 asm_valid = False
-                            #print("ASM")
 
                             # SG
-                            #print(gen_cif)
                             if is_space_group_consistent(gen_cif):
                                 mean_sg += 1
                                 sg_valid = True
                             else:
                                 sg_valid = False
-                            #print("SG")
 
                             # BLRS
                             if bond_length_reasonableness_score(gen_cif) >= 1.0:
@@ -402,7 +367,6 @@ def generate_samples(config):
                                 blrs_valid = True
                             else:
                                 blrs_valid = False
-                            #print("BLRS")
 
                             # Formula
                             if is_formula_consistent(gen_cif):
@@ -410,7 +374,6 @@ def generate_samples(config):
                                 fc_valid = True
                             else:
                                 fc_valid = False
-                            #print("FC")
 
                             # See if valid
                             if asm_valid and sg_valid and blrs_valid and fc_valid:
@@ -418,7 +381,6 @@ def generate_samples(config):
                                 is_valid = True
                             else:
                                 is_valid = False
-                            #print("validity")
 
                             # Generated cif properties
                             a = extract_numeric_property(gen_cif, "_cell_length_a")
@@ -453,10 +415,6 @@ def generate_samples(config):
                             repeat_gen_pbar.update(1)
                         
                         except Exception as e:
-                            #raise e
-                            #print(f"{e}")
-                            #print(gen_cif)
-                            
                             mean_rmsd += np.nan
                             mean_hdd += np.nan
                             n_fails += 1
@@ -475,11 +433,9 @@ def generate_samples(config):
                     mean_blrs /= n_non_fails
                     mean_fc /=  n_non_fails 
                     mean_validity /= n_non_fails
-                    #print("Average")
 
                     # Append results
                     results.append((fname, cifs, gen_cells, cells, mean_rmsd, mean_hdd, mean_asm, mean_sg, mean_blrs, mean_fc, mean_validity))
-                    #print("Append results")
 
                 else:
                     # Print filename
@@ -493,7 +449,7 @@ def generate_samples(config):
                         cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_indices[i], start_indices[i+1], cif_start_id, new_line_id, spacegroup_id)
                         
                         # Generate from prompt using model and print while doing so
-                        gen_cif_ids = model.generate_and_print(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k)
+                        gen_cif_ids = model.generate_and_print(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k).cpu().numpy()
                         
                         if config.fit_xrd:
                             try:
