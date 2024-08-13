@@ -347,6 +347,24 @@ def generate_samples(config):
                             gen_cif = return_operators(gen_cif, space_group_symbol)
                         
                         try:
+                            # Generated cif properties
+                            a = extract_numeric_property(gen_cif, "_cell_length_a")
+                            b = extract_numeric_property(gen_cif, "_cell_length_b")
+                            c = extract_numeric_property(gen_cif, "_cell_length_c")
+                            alpha = extract_numeric_property(gen_cif, "_cell_angle_alpha")
+                            beta = extract_numeric_property(gen_cif, "_cell_angle_beta")
+                            gamma = extract_numeric_property(gen_cif, "_cell_angle_gamma")
+
+                            # Check if structure has any zero-cell-parameters (might result in segmentation fault)
+                            cell_parameters = np.array([a, b, c, alpha, beta, gamma])
+                            if not np.all(cell_parameters > 0.0):
+                                raise Exception
+
+                            implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
+                            gen_vol = extract_volume(gen_cif)
+                            data_formula = extract_data_formula(gen_cif)
+
+
                             # ASM
                             if is_atom_site_multiplicity_consistent(gen_cif):
                                 mean_asm += 1
@@ -382,17 +400,6 @@ def generate_samples(config):
                             else:
                                 is_valid = False
 
-                            # Generated cif properties
-                            a = extract_numeric_property(gen_cif, "_cell_length_a")
-                            b = extract_numeric_property(gen_cif, "_cell_length_b")
-                            c = extract_numeric_property(gen_cif, "_cell_length_c")
-                            alpha = extract_numeric_property(gen_cif, "_cell_angle_alpha")
-                            beta = extract_numeric_property(gen_cif, "_cell_angle_beta")
-                            gamma = extract_numeric_property(gen_cif, "_cell_angle_gamma")
-                            implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
-                            gen_vol = extract_volume(gen_cif)
-                            data_formula = extract_data_formula(gen_cif)
-
                             # Calculate metrics
                             rmsd, hdd, *_ = calculate_metrics(cond, gen_cif, config.scattering_lower_limit, config.number_limit)
                             if rmsd is not None:
@@ -407,7 +414,6 @@ def generate_samples(config):
                                 hdd = np.nan
 
                             gen_cells.append((a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula, gen_len, asm_valid, sg_valid, blrs_valid, fc_valid, is_valid, rmsd, hdd, space_group_symbol))
-
                             # Append and move on
                             cifs.append((cif, gen_cif))
 

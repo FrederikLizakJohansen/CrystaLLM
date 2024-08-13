@@ -66,6 +66,19 @@ def bond_length_reasonableness_score(cif_str, tolerance=0.32, h_factor=2.5):
 
     return normalized_score
 
+def is_non_zero_cell_parameters(cif_str):
+    try:
+        parser = CifParser.from_string(cif_str)
+    except:
+        parser = CifParser.from_str(cif_str)
+
+    # Check if structure has any zero-cell-parameters (might result in segmentation fault)
+    cell_parameter_keys = ['_cell_length_a', '_cell_length_b', '_cell_length_c',
+                           '_cell_angle_alpha', '_cell_angle_beta', '_cell_angle_gamma']
+    cell_parameters = np.array([float(cif_data[list(cif_data.keys())[0]][k]) for k in cell_parameter_keys])
+
+    return True if np.all(cell_parameters > 0.0) else False
+
 
 def is_space_group_consistent(cif_str):
     structure = Structure.from_str(cif_str, fmt="cif")
