@@ -1,20 +1,22 @@
 import sys
-import re
-import yaml
 sys.path.append(".")
-import os
-import io
-from dataclasses import dataclass
+
+import os, re, io, yaml
+
 import tarfile
 import argparse
 import pickle
 import json
+
+from dataclasses import dataclass
+
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 
 import ctypes
-
 from contextlib import nullcontext
+
 import torch
 
 from crystallm import (
@@ -38,10 +40,10 @@ from pymatgen.core import Composition
 from pymatgen.io.cif import CifBlock, CifParser
 from pymatgen.symmetry.groups import SpaceGroup
 from pymatgen.core.operations import SymmOp
-
 from pymatgen.analysis.diffraction.xrd import XRDCalculator
 
-import matplotlib.pyplot as plt
+# Suppress spglib warning messages when looking for symmetry
+os.environ['SPGLIB_WARNING'] = "OFF"
 
 import warnings
 warnings.filterwarnings("ignore")
