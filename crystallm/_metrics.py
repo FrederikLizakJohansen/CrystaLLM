@@ -123,6 +123,7 @@ def is_atom_site_multiplicity_consistent(cif_str):
         parser = CifParser.from_string(cif_str)
     except:
         parser = CifParser.from_str(cif_str)
+
     cif_data = parser.as_dict()
 
     # Extract the chemical formula sum from the CIF data

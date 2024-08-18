@@ -349,6 +349,9 @@ def generate_samples(config):
                             gen_cif = return_operators(gen_cif, space_group_symbol)
                         
                         try:
+                            if not is_sensible(cif, config.length_lo, config.length_hi, config.angle_lo, config.angle_hi):
+                                raise Exception("CIF not sensible")
+                            
                             # Generated cif properties
                             a = extract_numeric_property(gen_cif, "_cell_length_a")
                             b = extract_numeric_property(gen_cif, "_cell_length_b")
@@ -358,9 +361,9 @@ def generate_samples(config):
                             gamma = extract_numeric_property(gen_cif, "_cell_angle_gamma")
 
                             # Check if structure has any zero-cell-parameters (might result in segmentation fault)
-                            cell_parameters = np.array([a, b, c, alpha, beta, gamma])
-                            if not np.all(cell_parameters > 0.0):
-                                raise Exception
+                            #cell_parameters = np.array([a, b, c, alpha, beta, gamma])
+                            #if not np.all(cell_parameters > 0.0):
+                            #    raise Exception
 
                             implied_vol = get_unit_cell_volume(a, b, c, alpha, beta, gamma)
                             gen_vol = extract_volume(gen_cif)
@@ -602,6 +605,10 @@ class SampleDefaults:
     cond_window: int = 200
     individual_cifs: bool = False
     exclude_cond: bool = False
+    length_lo: float = 0.5
+    length_hi: float = 1000.
+    angle_lo: float = 10.
+    angle_hi: float = 170.
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CIFs from datasplit")
@@ -629,6 +636,14 @@ if __name__ == "__main__":
     parser.add_argument("--individual_cifs", action='store_true')
     parser.add_argument("--cond_window", type=int)
     parser.add_argument("--exclude_cond", action='store_true')
+    parser.add_argument("--length_lo", required=False, default=0.5, type=float,
+                        help="The smallest cell length allowable for the sensibility check")
+    parser.add_argument("--length_hi", required=False, default=1000., type=float,
+                        help="The largest cell length allowable for the sensibility check")
+    parser.add_argument("--angle_lo", required=False, default=10., type=float,
+                        help="The smallest cell angle allowable for the sensibility check")
+    parser.add_argument("--angle_hi", required=False, default=170., type=float,
+                        help="The largest cell angle allowable for the sensibility check")
     args = parser.parse_args()
 
     config = SampleDefaults()

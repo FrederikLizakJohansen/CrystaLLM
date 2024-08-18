@@ -107,7 +107,6 @@ def tth_to_q(tth, wl):
 def calculate_metrics(cond, cif, scattering_lower_limit=None, number_limit=None):
 
     try:
-
         # Convert cond into x and y arrays
         pattern = re.compile(r'(\d+\.\d+),(\d+\.\d+)')
         matches = pattern.findall(cond)
@@ -293,14 +292,14 @@ def generate_samples(config):
             pbar = tqdm(desc='Generating CIFs...', leave=False, disable=print_to_consol, total=len(cif_paths))
 
             for i, (fname, start_idx) in enumerate(zip(cif_paths, start_indices[:-1])): # TODO Also include the last of the cifs [:-1]
-                
+
                 # Break if debug max is reached
                 if i >= config.debug_max:
                     break
 
                 # Save conditioning pattern, cif generations, mean rmsd and mean hdd
-                cifs = [] # Original / Generated
-                gen_cells = [] # Tuples of a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula
+                #cifs = [] # Original / Generated
+                #gen_cells = [] # Tuples of a,b,c,alpha,beta,gamma,implied_vol,gen_vol,data_formula
 
                 # Get conditioning, cif and prompt
                 cond_ids, cif_ids, prompt = extract_cond_cif_prompt(config, data, start_indices[i], start_indices[i+1], cif_start_id, new_line_id, spacegroup_id)
@@ -311,6 +310,9 @@ def generate_samples(config):
                 cif = decode(cif_ids)
                 
                 for j in range(config.n_repeats):
+
+                    # Pert name
+                    pname = fname.split(".")[-1] + f'__{j+1}'
 
                     # Generate from prompt using model
                     gen_cif_ids = model.generate(prompt, max_new_tokens = config.max_new_tokens, top_k = config.top_k, disable_pbar=True).cpu().numpy()
@@ -325,27 +327,33 @@ def generate_samples(config):
                         gen_cif = return_operators(gen_cif, space_group_symbol)
 
                     # Append results
-                    results.append((fname, cifs))
+                    results.append((pname, cif, gen_cif))
 
                 # Update outer pbar
                 pbar.update(1) 
 
     # Save in tarball or as individual cifs (for debugging)
     with tarfile.open(config.out, "w:gz") as tar:
-        for id, gens in tqdm(results, desc=f"Writing results to {config.out}..."):
-            for i, (original, gen) in enumerate(gens):
+        for pname, cif, gen_cif in tqdm(results, desc=f"Writing results to {config.out}..."):
 
-                # original
-                original_file = tarfile.TarInfo(name=f"original_{id}__{i+1}.cif")
-                original_bytes = original.encode("utf-8")
-                original_file.size = len(original_bytes)
-                tar.addfile(original_file, io.BytesIO(original_bytes))
-                
-                # gen
-                gen_file = tarfile.TarInfo(name=f"gen_{id}__{i+1}.cif")
-                gen_bytes = gen.encode("utf-8")
-                gen_file.size = len(gen_bytes)
-                tar.addfile(gen_file, io.BytesIO(gen_bytes))
+            # JSON with original and generated
+            data = json.dumps({"pname": pname, "cif": cif, "gen_cif": gen_cif}).encode("utf-8")
+            data_file = io.BytesIO(data)
+            tarinfo = tarfile.TarInfo(name=f"{pname}.json")
+            tarinfo.size = len(data)
+            tar.addfile(tarinfo, fileobj=data_file)
+
+            # original
+            #original_file = tarfile.TarInfo(name=f"original_{pname}.cif")
+            #original_bytes = cif.encode("utf-8")
+            #original_file.size = len(original_bytes)
+            #tar.addfile(original_file, io.BytesIO(original_bytes))
+            
+            # gen
+            #gen_file = tarfile.TarInfo(name=f"gen_{pname}.cif")
+            #gen_bytes = gen_cif.encode("utf-8")
+            #gen_file.size = len(gen_bytes)
+            #tar.addfile(gen_file, io.BytesIO(gen_bytes))
 
 
 @dataclass
